@@ -1,0 +1,11 @@
+.terraform/
+*.tfstate*
+*.tfvars
+*.auto.tfvars
+backend.hcl
+k8s/overlays/aws/config.env
+node_modules
+dist/
+coverage/
+*.kubeconfig
+.env*
