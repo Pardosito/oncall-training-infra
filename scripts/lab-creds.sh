@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# Reads the Learner Lab "AWS CLI" block from stdin and writes it as the `default`
-# profile in ~/.aws/credentials (other profiles are kept). Never prints the secrets.
+# Reads the Learner Lab "AWS CLI" block from stdin, writes it as the `default`
+# profile in ~/.aws/credentials (other profiles are kept), checks it against AWS,
+# then pushes it as GitHub Actions secrets to the infra, backend and frontend repos.
+# Never prints the secrets.
 #
 #   scripts/lab-creds.sh            # paste the block; it stops reading once all 3 keys are in
 #   pbpaste | scripts/lab-creds.sh
 #
-# Honors AWS_SHARED_CREDENTIALS_FILE, like the AWS CLI.
+# Env:
+#   LAB_REPOS                    space-separated OWNER/REPO list for the secrets (default: the 3 project repos)
+#   SKIP_GH=1                    only write ~/.aws/credentials, don't touch GitHub
+#   AWS_SHARED_CREDENTIALS_FILE  honored like the AWS CLI does
 set -euo pipefail
 
 CREDS_FILE="${AWS_SHARED_CREDENTIALS_FILE:-$HOME/.aws/credentials}"
 REGION="us-east-1"
+LAB_REPOS="${LAB_REPOS:-Pardosito/oncall-training-infra Pardosito/oncall-training-backend Pardosito/oncall-training-frontend}"
 
 log() { printf '%s\n' "$*" >&2; }
 die() { log "error: $*"; exit 1; }
@@ -78,6 +84,34 @@ check_identity() {
   log "OK: AWS account $account"
 }
 
+push_github_secrets() {
+  if [[ "${SKIP_GH:-}" == "1" ]]; then
+    log "SKIP_GH=1: not updating GitHub secrets"
+    return
+  fi
+  command -v gh >/dev/null || die "gh not found; install it or rerun with SKIP_GH=1"
+  gh auth status >/dev/null 2>&1 || die "gh is not logged in; run 'gh auth login' or rerun with SKIP_GH=1"
+
+  local repo failed=()
+  for repo in $LAB_REPOS; do
+    log "Updating AWS_* secrets in $repo"
+    # No --body: gh reads the value from stdin, so it never appears in `ps`.
+    if printf '%s' "$key_id" | gh secret set AWS_ACCESS_KEY_ID --repo "$repo" >/dev/null &&
+       printf '%s' "$secret" | gh secret set AWS_SECRET_ACCESS_KEY --repo "$repo" >/dev/null &&
+       printf '%s' "$token" | gh secret set AWS_SESSION_TOKEN --repo "$repo" >/dev/null; then
+      :
+    else
+      failed+=("$repo")
+    fi
+  done
+
+  if (( ${#failed[@]} )); then
+    die "could not update secrets in: ${failed[*]}"
+  fi
+  log "OK: secrets updated in $(wc -w <<<"$LAB_REPOS" | tr -d ' ') repos"
+}
+
 read_block
 write_default_profile
 check_identity
+push_github_secrets
