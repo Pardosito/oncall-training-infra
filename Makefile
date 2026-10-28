@@ -36,3 +36,15 @@ help: ## List targets
 	  | awk -F ':.*## ' '{ printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 }'
 	@echo
 	@echo "AWS_REGION=$(AWS_REGION)  CLUSTER_NAME=$(CLUSTER_NAME)"
+
+# ---- Credentials -------------------------------------------------------------
+# Every target that talks to AWS lists `check-creds` as its first prerequisite:
+#   foundation-plan: check-creds
+
+.PHONY: creds
+creds: ## Paste the lab "AWS CLI" block → ~/.aws/credentials + GitHub secrets (SKIP_GH=1: local only)
+	@scripts/lab-creds.sh
+
+.PHONY: check-creds
+check-creds: ## Fail early if the lab credentials are missing or expired
+	@scripts/check-creds.sh
