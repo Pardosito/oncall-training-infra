@@ -17,6 +17,7 @@ helm = "4.3.1"
 node = "22.23.4"
 pnpm = "12.16.1"
 
-# Scripts and AWS
+# Scripts, hooks and AWS
 shellcheck = "0.11.0"
+pre-commit = "4.7.0"
 aws-cli = "2.39.0"
