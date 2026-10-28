@@ -36,13 +36,14 @@ All CLI versions are pinned in [`mise.toml`](mise.toml): terraform, tflint, kube
 
 ```bash
 brew install mise                 # or: curl https://mise.run | sh
-echo 'eval "$(mise activate zsh)"' >> ~/.zshrc   # then restart the shell
+echo 'eval "$(mise activate zsh)"' >> ~/.zshrc            # terminal
+echo 'eval "$(mise activate zsh --shims)"' >> ~/.zprofile  # IDEs / GUI git clients; then restart the shell
 mise install                      # installs every pinned tool for this repo
 mise ls --current                 # check what's active
 pre-commit install                # git hooks: fmt, validate, shellcheck, trailing whitespace
 ```
 
-Inside the repo, mise puts the pinned versions first on your `PATH`.
+Inside the repo, mise puts the pinned versions first on your `PATH`. The pre-commit hooks need this too: if a commit fails with "Neither Terraform nor OpenTofu binary could be found", mise isn't activated in that shell.
 
 ## Lab session routine
 
