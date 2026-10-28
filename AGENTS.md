@@ -120,6 +120,7 @@ oncall-training-infra/
 8. **Kubernetes:** namespaced Roles only (no ClusterRoles for workloads), default-deny NetworkPolicies, probes and resource limits on every container, images by git SHA tag.
 9. **Tests** are part of the change for the injector and mock system (fault parsing, idempotency, health logic).
 10. Follow `docs/CONVENTIONS.md`. Prefer small PRs, one concern each, with the `terraform plan` summary pasted for infra changes.
+11. **No AI attribution.** Never add yourself as a co-author: no `Co-Authored-By` trailers in commits and no "Generated with …" lines in PR descriptions or issues.
 
 ## 9. Timeline (course)
 
