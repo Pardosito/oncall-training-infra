@@ -59,3 +59,16 @@ Lab credentials expire at the end of every session, and the cluster stack costs 
 > **Always run `make cluster-down` before you stop working.** The lab doesn't stop the cluster for you: EKS, the nodes, the ALB and ElastiCache keep billing until they're destroyed, and a forgotten cluster can drain the lab budget. Run it even if `cluster-up` failed halfway. `foundation` (data, users, images) stays up and costs cents per day.
 
 First time in a new lab account, run `make bootstrap` once (after `make creds`) to create the Terraform state bucket.
+
+### Recovering the bootstrap state
+
+The `bootstrap` stack keeps its state locally (`terraform/bootstrap/terraform.tfstate`, gitignored), because it creates the bucket every other stack stores its state in. If that file is lost (new laptop, fresh clone), the bucket is still there, so **don't** run `make bootstrap` again: it would try to create a bucket that already exists. Import it instead:
+
+```bash
+cd terraform/bootstrap
+terraform init
+BUCKET="oncall-training-tfstate-$(aws sts get-caller-identity --query Account --output text)"
+terraform import awscc_s3_bucket.state "$BUCKET"
+terraform plan   # should say "No changes"
+cd ../.. && make backend-config   # rewrite foundation/ and cluster/ backend.hcl
+```

@@ -6,6 +6,11 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.0"
     }
+    # S3 buckets only: the lab blocks the object lock read aws_s3_bucket needs (D-24).
+    awscc = {
+      source  = "hashicorp/awscc"
+      version = "~> 1.0"
+    }
   }
 
   # Bootstrap creates the state bucket, so its own state stays local (D-02).

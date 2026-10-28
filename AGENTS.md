@@ -50,7 +50,7 @@ Out of scope unless the team asks: multiple environments (dev/stage/prod), custo
 
 | Concern | Choice |
 |---|---|
-| IaC | **Terraform** ≥ 1.10, AWS provider ~> 6.x, Helm provider for the LB controller. **Two stacks** (`foundation`, `cluster`) + `bootstrap`. State in S3 with native lock file (`use_lockfile = true`) |
+| IaC | **Terraform** ≥ 1.10, AWS provider ~> 6.x, `awscc` provider ~> 1.x for S3 buckets only (D-24), Helm provider for the LB controller. **Two stacks** (`foundation`, `cluster`) + `bootstrap`. State in S3 with native lock file (`use_lockfile = true`) |
 | Kubernetes | **Amazon EKS** (managed node group, 2× `t3.medium`, AL2023), **Kustomize** (base + `local` and `aws` overlays) |
 | Networking | VPC with 2 AZs; **public subnets for nodes and the ALB, no NAT**; private subnets for ElastiCache |
 | Ingress | **AWS Load Balancer Controller** → ALB (IP targets), restricted to CloudFront |

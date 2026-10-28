@@ -30,6 +30,7 @@ Rules for Terraform, Kubernetes manifests, the state machine, the TypeScript ser
   - `aws_iam_role`, `aws_iam_policy`, `aws_iam_role_policy`, `aws_iam_role_policy_attachment`, `aws_iam_user`
   - `aws_iam_openid_connect_provider`
   - `aws_eks_pod_identity_association`
+  - `aws_s3_bucket`: use `awscc_s3_bucket` instead, with versioning, encryption, public access block and lifecycle set on that one resource and `tags = local.awscc_tags` (D-24). The other `aws_s3_bucket_*` resources that configure a bucket (versioning, encryption, public access block, lifecycle) aren't needed; `aws_s3_bucket_policy` is fine.
 - Account id and region come from `data "aws_caller_identity"` / `data "aws_region"`. Never hardcode them.
 - Instance types are variables with validation (`t3.*`/`t4g.*` up to `large`).
 

@@ -1,14 +1,14 @@
+# Learner Lab only allows us-east-1 (AGENTS §4).
+
 provider "aws" {
-  # Learner Lab only allows us-east-1 (AGENTS §4).
   region = "us-east-1"
 
   default_tags {
-    tags = {
-      Project   = local.name
-      Owner     = var.owner
-      Env       = "lab"
-      ManagedBy = "terraform"
-      Stack     = "bootstrap"
-    }
+    tags = local.tags
   }
+}
+
+# awscc has no default_tags; pass local.awscc_tags to each resource.
+provider "awscc" {
+  region = "us-east-1"
 }

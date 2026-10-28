@@ -48,3 +48,27 @@ creds: ## Paste the lab "AWS CLI" block → ~/.aws/credentials + GitHub secrets 
 .PHONY: check-creds
 check-creds: ## Fail early if the lab credentials are missing or expired
 	@scripts/check-creds.sh
+
+# ---- Bootstrap ---------------------------------------------------------------
+
+TF_BOOTSTRAP := terraform -chdir=terraform/bootstrap
+
+.PHONY: bootstrap
+bootstrap: check-creds ## Once per lab account: create the state bucket, then write backend.hcl
+	@$(TF_BOOTSTRAP) init -input=false
+	@$(TF_BOOTSTRAP) plan -input=false -out=bootstrap.tfplan
+	$(call confirm,This applies the bootstrap plan above.)
+	@$(TF_BOOTSTRAP) apply -input=false bootstrap.tfplan
+	@rm -f terraform/bootstrap/bootstrap.tfplan
+	@$(MAKE) --no-print-directory backend-config
+
+.PHONY: backend-config
+backend-config: ## Write the gitignored backend.hcl for foundation and cluster from the bootstrap state
+	@bucket="$$($(TF_BOOTSTRAP) output -raw state_bucket 2>/dev/null)"; \
+	[ -n "$$bucket" ] || { \
+	  echo "error: no state_bucket output; run make bootstrap (or import the bucket, see README)" >&2; exit 1; }; \
+	for stack in foundation cluster; do \
+	  printf 'bucket       = "%s"\nkey          = "%s.tfstate"\nregion       = "%s"\nuse_lockfile = true\nencrypt      = true\n' \
+	    "$$bucket" "$$stack" "$(AWS_REGION)" > terraform/$$stack/backend.hcl; \
+	  echo "Wrote terraform/$$stack/backend.hcl"; \
+	done

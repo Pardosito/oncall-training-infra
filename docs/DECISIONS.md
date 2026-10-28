@@ -37,6 +37,7 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-21 | 2026-10-22 | Glue table with partition projection; Athena workgroup with a 100 MB scan limit | Decided |
 | D-22 | 2026-10-22 | The e2e Cognito user is created by a script, not Terraform | Decided (answers frontend O-04) |
 | D-23 | 2026-10-22 | Docs written in English | Decided |
+| D-24 | 2026-10-27 | S3 buckets use `awscc_s3_bucket` (Cloud Control), not `aws_s3_bucket` | Decided (forced by Learner Lab) |
 
 ---
 
@@ -126,6 +127,11 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 ### D-23 · English docs
 **Why:** they match the other repos, work best for the CV, and are what agents handle most reliably.
 
+### D-24 · S3 buckets through the awscc provider
+**Why:** the Learner Lab's service control policy denies `s3:GetBucketObjectLockConfiguration`. The `aws` provider's `aws_s3_bucket` reads the object lock configuration on every refresh and treats AccessDenied as fatal, so any `aws_s3_bucket` fails right after it's created and on every plan after that. This was found on the first bootstrap apply (2026-10-27); it's the only S3 bucket read the policy denies, and no provider version from 5.80 to 6.70 tolerates it. `awscc_s3_bucket` reads the bucket through the Cloud Control API, which works, and covers versioning, encryption, public access block, lifecycle and tags in one resource.
+**Scope:** only the bucket itself. Everything else, including `aws_s3_bucket_policy` and `data "aws_s3_bucket"`, stays on the `aws` provider. `awscc` has no `default_tags`, so each stack builds `local.awscc_tags` from the same tag map.
+**Alternatives considered:** creating the buckets with the AWS CLI and referencing them with data sources (breaks "all AWS resources go through Terraform"); asking AWS Academy to relax the policy (not in our control).
+
 ---
 
 ## 3. Current limitations
@@ -143,6 +149,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 | L-09 | No custom domain or certificate | `*.cloudfront.net` URL | Fine for the course |
 | L-10 | No metrics or alerting stack | Debugging relies on `kubectl logs` and CloudWatch (Step Functions) | `make status`; JSON logs |
 | L-11 | kind doesn't enforce NetworkPolicies by default | Local behavior can differ from EKS | Optional Calico in `make kind-up`; policies tested on EKS |
+| L-12 | The lab's SCP denies `s3:GetBucketObjectLockConfiguration` | `aws_s3_bucket` can't be used; buckets need a second provider (`awscc`) | D-24; CI rejects `aws_s3_bucket` (CONV §1.4) |
 
 ---
 

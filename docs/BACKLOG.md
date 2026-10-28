@@ -149,7 +149,7 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 ### INF-019 · S3 files bucket
 `labels: area:terraform, stack:foundation, type:task` · `milestone: M1 · EKS up` · `depends: INF-017`
 
-- [ ] `oncall-training-files-<acct>`: block public access, SSE-S3, versioning off, `prevent_destroy`
+- [ ] `awscc_s3_bucket` `oncall-training-files-<acct>` (not `aws_s3_bucket`, D-24): block public access, SSE-S3, versioning off, `prevent_destroy`
 - [ ] Lifecycle rule: `athena-results/` expires after 7 days
 - [ ] Output `files_bucket`
 
@@ -195,7 +195,7 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 ### INF-026 · S3 site bucket
 `labels: area:terraform, stack:foundation, type:task, cross-repo` · `milestone: M2 · Orchestration` · `depends: INF-017`
 
-- [ ] `oncall-training-site-<acct>`: block public access, SSE-S3 (the bucket policy comes in INF-030)
+- [ ] `awscc_s3_bucket` `oncall-training-site-<acct>` (not `aws_s3_bucket`, D-24): block public access, SSE-S3 (the bucket policy comes in INF-029)
 - [ ] Output `site_bucket`
 
 ### INF-027 · CloudFront Function spa-rewrite
@@ -747,7 +747,7 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 ### INF-115 · CI: forbidden IAM resource check
 `labels: area:ci, type:task` · `milestone: M1 · EKS up` · `depends: INF-114`
 
-- [ ] `scripts/check-forbidden-iam.sh` fails on any resource type in CONV §1.4; runs in `ci.yml` and `make lint`
+- [ ] `scripts/check-forbidden-iam.sh` fails on any resource type in CONV §1.4 (including `aws_s3_bucket`, D-24); runs in `ci.yml` and `make lint`
 
 ### INF-116 · CI: kustomize build + kubeconform
 `labels: area:ci, type:task` · `milestone: M1 · EKS up` · `depends: INF-114, INF-068`
