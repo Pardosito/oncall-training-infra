@@ -1,0 +1,11 @@
+# Mock system (ARCHITECTURE §9): gateway → orders → worker-svc, one image, ROLE picks the behavior.
+# Baseline replicas must match the scenario's `baseline` in the backend repo.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment-gateway.yaml
+  - deployment-orders.yaml
+  - deployment-worker-svc.yaml
+  - service-gateway.yaml
+  - service-orders.yaml
+  - service-worker-svc.yaml

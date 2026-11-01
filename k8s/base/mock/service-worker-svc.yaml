@@ -1,0 +1,17 @@
+# DNS name worker-svc.mock.svc.cluster.local is part of the backend's MOCK_HEALTH_URL_TEMPLATE (cross-repo).
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-svc
+  namespace: mock
+  labels:
+    app.kubernetes.io/name: worker-svc
+    app.kubernetes.io/component: mock
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: worker-svc
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

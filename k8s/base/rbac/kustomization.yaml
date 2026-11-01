@@ -1,0 +1,15 @@
+# ARCHITECTURE §5.2: every Role lives in `mock` and is bound to service accounts in other
+# namespaces. No ClusterRoles, no wildcards.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - serviceaccount-backend-api.yaml
+  - serviceaccount-backend-worker.yaml
+  - serviceaccount-injector.yaml
+  - serviceaccount-mock-system.yaml
+  - role-mock-reader.yaml
+  - role-mock-operator.yaml
+  - role-mock-injector.yaml
+  - rolebinding-backend-api-mock-reader.yaml
+  - rolebinding-backend-worker-mock-operator.yaml
+  - rolebinding-injector-mock-injector.yaml

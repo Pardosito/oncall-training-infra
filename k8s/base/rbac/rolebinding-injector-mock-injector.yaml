@@ -1,0 +1,16 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: injector-mock-injector
+  namespace: mock
+  labels:
+    app.kubernetes.io/name: injector-mock-injector
+    app.kubernetes.io/component: injector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mock-injector
+subjects:
+  - kind: ServiceAccount
+    name: injector
+    namespace: injector

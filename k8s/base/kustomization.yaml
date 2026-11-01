@@ -1,0 +1,17 @@
+# Base for every environment (CONVENTIONS §2). Overlays change only images, Ingress and config.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: oncall-training
+    includeSelectors: false
+    includeTemplates: true
+
+resources:
+  - namespaces
+  - rbac
+  - mock
+  - injector
+  - app
+  # networkpolicies: M2 (INF-075..078), applied together or the ALB and probes break.

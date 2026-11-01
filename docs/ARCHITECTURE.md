@@ -134,6 +134,8 @@ Egress isn't restricted in the MVP (pods need AWS APIs and Redis). Kubelet probe
 ### 5.4 Configuration
 
 - `scripts/render-config.sh` reads the foundation and cluster outputs and writes `k8s/overlays/aws/config.env` (gitignored). Kustomize's `configMapGenerator` turns it into ConfigMap `oncall-config` in `app` and `injector`. The hash suffix triggers a rollout when it changes.
+- It also writes `k8s/overlays/aws/cluster.env` (gitignored): `ECR_REGISTRY` and `ALB_SECURITY_GROUP_ID`. With the committed `images.env` (`MOCK_TAG`, `INJECTOR_TAG`, `BACKEND_TAG`), Kustomize `replacements` turn the base images `registry.invalid/oncall-training/<repo>:unset` into ECR images and set the Ingress security group (D-27). `*.env.example` files show the keys; `make k8s-validate` uses them when the real files don't exist.
+- The images run as the `node` user; pods set `runAsUser: 1000` so the kubelet can verify `runAsNonRoot`.
 - Backend variables (names match backend ARCHITECTURE §9): `AWS_REGION`, `SESSIONS_TABLE`, `FILES_BUCKET`, `USER_ACTIONS_QUEUE_URL`, `STATE_MACHINE_ARN`, `ATHENA_WORKGROUP`, `ATHENA_DATABASE`, `REDIS_URL` (`rediss://…`), `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `MOCK_NAMESPACE=mock`, `MOCK_HEALTH_URL_TEMPLATE=http://{service}.mock.svc.cluster.local:8080/health`, `AUTH_MODE=cognito`, `MOCK_CLUSTER=kubernetes`, `STATS_MODE=athena`.
 - Injector variables: `AWS_REGION`, `FAULTS_QUEUE_URL`, `SESSIONS_TABLE`, `REDIS_URL`, `MOCK_NAMESPACE=mock`.
 - No Kubernetes Secrets are needed in the MVP (no passwords; AWS credentials come from the node).
