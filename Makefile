@@ -72,3 +72,34 @@ backend-config: ## Write the gitignored backend.hcl for foundation and cluster f
 	    "$$bucket" "$$stack" "$(AWS_REGION)" > terraform/$$stack/backend.hcl; \
 	  echo "Wrote terraform/$$stack/backend.hcl"; \
 	done
+
+# ---- Foundation and cluster stacks -------------------------------------------
+# Both use the S3 backend from backend.hcl (written by `make backend-config`).
+# Plans are saved to <stack>.tfplan so apply runs exactly what was shown.
+
+TF_FOUNDATION := terraform -chdir=terraform/foundation
+TF_CLUSTER    := terraform -chdir=terraform/cluster
+
+# $(call tf_init,<stack>)
+define tf_init
+	@[ -f terraform/$(1)/backend.hcl ] || { \
+	  echo "error: terraform/$(1)/backend.hcl missing; run make backend-config" >&2; exit 1; }
+	@terraform -chdir=terraform/$(1) init -input=false -backend-config=backend.hcl >/dev/null
+endef
+
+.PHONY: foundation-plan
+foundation-plan: check-creds ## Plan the foundation stack (S3, DynamoDB, SQS, ECR, ...)
+	$(call tf_init,foundation)
+	@$(TF_FOUNDATION) plan -input=false -out=foundation.tfplan
+
+.PHONY: foundation-apply
+foundation-apply: foundation-plan ## ⚠ Apply the foundation plan (asks first)
+	$(call confirm,This applies the foundation plan above.)
+	@$(TF_FOUNDATION) apply -input=false foundation.tfplan
+	@rm -f terraform/foundation/foundation.tfplan
+
+.PHONY: foundation-output
+foundation-output: check-creds ## Show the foundation outputs (queue URLs, table, ECR URLs) to share with the team
+	$(call tf_init,foundation)
+	@$(TF_FOUNDATION) output
+

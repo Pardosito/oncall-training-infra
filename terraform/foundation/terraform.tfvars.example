@@ -1,0 +1,2 @@
+# Copy to foundation.auto.tfvars (gitignored) and adjust.
+owner = "ian"
