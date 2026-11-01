@@ -11,7 +11,7 @@ This repo holds:
 
 The app itself lives in [`oncall-training-backend`](https://github.com/Pardosito/oncall-training-backend) and [`oncall-training-frontend`](https://github.com/Pardosito/oncall-training-frontend).
 
-> **Status:** early setup (milestone M0). Most `make` targets below are planned and land over M0–M1; run `make help` to see what exists today.
+> **Status:** M0 (setup) done. Next: EKS up (Thu Oct 29) and the first MVP, one incident loop on EKS (Thu Nov 5, [DECISIONS D-25](docs/DECISIONS.md)). Most `make` targets below are still planned; run `make help` to see what exists today.
 
 ## Docs
 

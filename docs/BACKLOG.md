@@ -11,7 +11,8 @@ Section references (§) point to `ARCHITECTURE.md` unless stated otherwise. `CON
 |---|---|---|
 | `M0 · Setup` | Tue Oct 27 | Repo skeleton, tooling, creds, state bucket |
 | `M1 · EKS up` | **Thu Oct 29** | Foundation basics + EKS; backend, mock system and injector running in separate namespaces; injector kills, system can be revived |
-| `M2 · Orchestration` | **Thu Nov 19** | Step Functions + both SQS queues integrated; ElastiCache serving the dashboard; CloudFront + Cognito |
+| `MVP · Nov 5` | **Thu Nov 5** | One incident loop on EKS (start → fault → fix → resolved) without Step Functions, ElastiCache, Cognito or CloudFront (D-25) |
+| `M2 · Orchestration` | **Thu Nov 19** | Step Functions + both SQS queues integrated; ElastiCache serving the dashboard; CloudFront + Cognito; replaces the MVP shortcuts. Also NetworkPolicies, CI and kind (moved from M1) |
 | `M3 · Data + e2e` | **Thu Nov 26** | Glue/Athena ready; e2e happy path on the deployed stack |
 | `M4 · Polish` | after Nov 26 | Docs, hardening, CV polish, stretch items |
 
@@ -63,7 +64,7 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 - [ ] `.github/ISSUE_TEMPLATE/task.md` matches the format of this backlog
 
 ### INF-008 · Add CODEOWNERS and protect main
-`labels: area:repo, type:task` · `milestone: M1 · EKS up` · `depends: INF-114`
+`labels: area:repo, type:task` · `milestone: M2 · Orchestration` · `depends: INF-114`
 
 - [ ] CODEOWNERS: Ian on everything; JP also on contract files (`statemachines/`, `k8s/base/rbac/`, `k8s/base/app/`, foundation `outputs.tf`)
 - [ ] Branch protection on `main`: PR required, `ci.yml` checks required
@@ -402,13 +403,13 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 - [ ] `vpc-cni` with `configuration_values = {"enableNetworkPolicy": "true"}`
 
 ### INF-059 · ALB security group restricted to CloudFront
-`labels: area:terraform, stack:cluster, type:task` · `milestone: M1 · EKS up` · `depends: INF-051`
+`labels: area:terraform, stack:cluster, type:task` · `milestone: M2 · Orchestration` · `depends: INF-051`
 
 - [ ] `oncall-training-alb`: inbound 80 only from the managed prefix list `com.amazonaws.global.cloudfront.origin-facing` (data source); every rule has a description
 - [ ] Output `alb_security_group_id`
 
 ### INF-060 · Helm provider and AWS Load Balancer Controller release
-`labels: area:terraform, stack:cluster, type:task` · `milestone: M1 · EKS up` · `depends: INF-058`
+`labels: area:terraform, stack:cluster, type:task` · `milestone: MVP · Nov 5` · `depends: INF-058`
 
 - [ ] Helm provider authenticated with `aws_eks_cluster_auth`
 - [ ] `helm_release` `aws-load-balancer-controller` in `kube-system`, chart version pinned, `clusterName`, `region`, `vpcId` set, no service account annotation
@@ -442,7 +443,7 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 - [ ] Destroy at the end of the session
 
 ### INF-065 · Spike: Load Balancer Controller on the node role
-`labels: area:ops, stack:cluster, type:spike, billable` · `milestone: M1 · EKS up` · `depends: INF-060, INF-064`
+`labels: area:ops, stack:cluster, type:spike, billable` · `milestone: MVP · Nov 5` · `depends: INF-060, INF-064`
 
 - [ ] A test Ingress creates an ALB with IP targets and the CloudFront-only SG
 - [ ] If blocked: apply the D-07 fallback (`Service type: LoadBalancer`) and record a new decision
@@ -453,7 +454,7 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 - [ ] Check `cache.t3.micro` / `cache.t4g.micro` for Valkey in the lab (dry-run or a short-lived create); record the answer in DECISIONS
 
 ### INF-067 · Spike O-04: NetworkPolicies vs kubelet probes and ALB IP targets
-`labels: area:ops, area:k8s, type:spike` · `milestone: M1 · EKS up` · `depends: INF-065, INF-075, INF-078, INF-086`
+`labels: area:ops, area:k8s, type:spike` · `milestone: M2 · Orchestration` · `depends: INF-065, INF-075, INF-078, INF-086`
 
 - [ ] With default-deny on: probes pass, ALB health checks pass, `app` → `mock` health works, `injector` → `mock` traffic is blocked
 - [ ] Close O-04 in DECISIONS
@@ -500,22 +501,22 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 - [ ] `scripts/check-rbac.sh` asserts allowed and denied verbs per SA (e.g. the injector can't touch `app`, the api can't scale); runs on kind and EKS
 
 ### INF-075 · NetworkPolicy default-deny-ingress in all three namespaces
-`labels: area:k8s, type:task` · `milestone: M1 · EKS up` · `depends: INF-069`
+`labels: area:k8s, type:task` · `milestone: M2 · Orchestration` · `depends: INF-069`
 
 - [ ] One policy per namespace, commented
 
 ### INF-076 · NetworkPolicy allow-alb-to-api
-`labels: area:k8s, type:task` · `milestone: M1 · EKS up` · `depends: INF-075`
+`labels: area:k8s, type:task` · `milestone: M2 · Orchestration` · `depends: INF-075`
 
 - [ ] Ingress to `backend-api:3000` from the VPC CIDR `10.20.0.0/16`, with a comment
 
 ### INF-077 · NetworkPolicy allow-intra-mock
-`labels: area:k8s, type:task` · `milestone: M1 · EKS up` · `depends: INF-075`
+`labels: area:k8s, type:task` · `milestone: M2 · Orchestration` · `depends: INF-075`
 
 - [ ] Ingress between mock pods on 8080
 
 ### INF-078 · NetworkPolicy allow-from-app in mock
-`labels: area:k8s, type:task` · `milestone: M1 · EKS up` · `depends: INF-075`
+`labels: area:k8s, type:task` · `milestone: M2 · Orchestration` · `depends: INF-075`
 
 - [ ] Ingress to mock pods on 8080 from namespace `app` (namespace selector on `kubernetes.io/metadata.name`)
 
@@ -559,12 +560,12 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 - [ ] `configMapGenerator` `oncall-config` from `config.env` in `app` and `injector` (hash suffix kept)
 
 ### INF-086 · aws overlay: backend-api Ingress
-`labels: area:k8s, type:task` · `milestone: M1 · EKS up` · `depends: INF-085, INF-059`
+`labels: area:k8s, type:task` · `milestone: MVP · Nov 5` · `depends: INF-085, INF-138`
 
 - [ ] `ingressClassName: alb` and the annotations in §5.1 (fixed name `oncall-training-api`, `target-type: ip`, SG from config, healthcheck `/healthz`, HTTP 80)
 
 ### INF-087 · local overlay for kind
-`labels: area:k8s, type:task` · `milestone: M1 · EKS up` · `depends: INF-079, INF-081`
+`labels: area:k8s, type:task` · `milestone: M2 · Orchestration` · `depends: INF-079, INF-081`
 
 - [ ] Local image names, `imagePullPolicy: Never`, no Ingress, no backend Deployments (the backend runs on the host)
 - [ ] Injector config points at LocalStack (`AWS_ENDPOINT_URL=http://host.docker.internal:4566`) and host Redis
@@ -647,7 +648,7 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 - [ ] Honors `AWS_ENDPOINT_URL`; tests with a fake SQS client
 
 ### INF-099 · Injector record step: DynamoDB INCIDENT_ACTIVE
-`labels: area:svc, svc:injector, type:task, cross-repo` · `milestone: M1 · EKS up` · `depends: INF-095`
+`labels: area:svc, svc:injector, type:task, cross-repo` · `milestone: MVP · Nov 5` · `depends: INF-095`
 
 - [ ] Conditional `UpdateItem`: `STARTING` → `INCIDENT_ACTIVE`, `fault_injected_at`, `updated_at`; `ConditionalCheckFailed` treated as already applied
 - [ ] Tests for both outcomes
@@ -659,7 +660,7 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 - [ ] Format confirmed with JP (backend D-12); test with a fake Redis
 
 ### INF-101 · Injector handler: apply-then-record order and idempotency
-`labels: area:svc, svc:injector, type:task` · `milestone: M1 · EKS up` · `depends: INF-097, INF-098, INF-099`
+`labels: area:svc, svc:injector, type:task` · `milestone: MVP · Nov 5` · `depends: INF-097, INF-098, INF-099`
 
 - [ ] Handler runs validate → apply → record → delete; a redelivered message is a no-op
 - [ ] Vitest with fakes asserts the order and the idempotency
@@ -674,17 +675,17 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 ## 11. Local kind setup (M1)
 
 ### INF-103 · scripts/kind-up.sh: kind cluster with optional Calico
-`labels: area:ops, area:k8s, type:task` · `milestone: M1 · EKS up` · `depends: INF-068`
+`labels: area:ops, area:k8s, type:task` · `milestone: M2 · Orchestration` · `depends: INF-068`
 
 - [ ] kind config for cluster `oncall-training`; `CALICO=1` disables the default CNI and installs a pinned Calico
 
 ### INF-104 · make kind-up / kind-down: build, load and apply
-`labels: area:ops, area:k8s, type:task` · `milestone: M1 · EKS up` · `depends: INF-103, INF-087, INF-093, INF-102`
+`labels: area:ops, area:k8s, type:task` · `milestone: M2 · Orchestration` · `depends: INF-103, INF-087, INF-093, INF-102`
 
 - [ ] Builds both images, `kind load docker-image`, applies `k8s/overlays/local`, waits for rollouts; `kind-down` deletes the cluster
 
 ### INF-105 · Local smoke test: fault in, system down, revive
-`labels: area:ops, type:task` · `milestone: M1 · EKS up` · `depends: INF-104, INF-101`
+`labels: area:ops, type:task` · `milestone: M2 · Orchestration` · `depends: INF-104, INF-101`
 
 - [ ] `scripts/local-smoke.sh` sends a FAULT to LocalStack `faults`, checks `orders` scaled to 0 and gateway `/health` = 503, scales back, checks 200
 
@@ -726,7 +727,7 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 - [ ] Checks that each tag exists in ECR first
 
 ### INF-112 · make lint
-`labels: area:ops, area:ci, type:task` · `milestone: M1 · EKS up` · `depends: INF-068, INF-088`
+`labels: area:ops, area:ci, type:task` · `milestone: M2 · Orchestration` · `depends: INF-068, INF-088`
 
 - [ ] `terraform fmt -check -recursive`, `validate` per stack (`-backend=false`), `tflint`, `make k8s-validate`, shellcheck, `pnpm lint typecheck test`
 
@@ -740,27 +741,27 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 ## 13. CI and workflows (M1–M2)
 
 ### INF-114 · ci.yml: Terraform fmt, validate and tflint
-`labels: area:ci, type:task` · `milestone: M1 · EKS up` · `depends: INF-017, INF-050`
+`labels: area:ci, type:task` · `milestone: M2 · Orchestration` · `depends: INF-017, INF-050`
 
 - [ ] Runs on PRs and pushes to `main`; no AWS credentials; actions pinned by SHA; `.tflint.hcl` with the AWS ruleset
 
 ### INF-115 · CI: forbidden IAM resource check
-`labels: area:ci, type:task` · `milestone: M1 · EKS up` · `depends: INF-114`
+`labels: area:ci, type:task` · `milestone: M2 · Orchestration` · `depends: INF-114`
 
 - [ ] `scripts/check-forbidden-iam.sh` fails on any resource type in CONV §1.4 (including `aws_s3_bucket`, D-24); runs in `ci.yml` and `make lint`
 
 ### INF-116 · CI: kustomize build + kubeconform
-`labels: area:ci, type:task` · `milestone: M1 · EKS up` · `depends: INF-114, INF-068`
+`labels: area:ci, type:task` · `milestone: M2 · Orchestration` · `depends: INF-114, INF-068`
 
 - [ ] Both overlays build and validate (with a dummy `config.env` for the aws overlay)
 
 ### INF-117 · CI: pnpm lint, typecheck, test and docker build
-`labels: area:ci, type:task` · `milestone: M1 · EKS up` · `depends: INF-114, INF-088`
+`labels: area:ci, type:task` · `milestone: M2 · Orchestration` · `depends: INF-114, INF-088`
 
 - [ ] pnpm cache; both images build without pushing
 
 ### INF-118 · CI: shellcheck
-`labels: area:ci, type:task` · `milestone: M1 · EKS up` · `depends: INF-114`
+`labels: area:ci, type:task` · `milestone: M2 · Orchestration` · `depends: INF-114`
 
 - [ ] All `scripts/*.sh` pass
 
@@ -770,7 +771,7 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 - [ ] Runs on `terraform/` and `k8s/`, reports without failing the build
 
 ### INF-120 · images.yml: build and push on merge
-`labels: area:ci, type:task` · `milestone: M1 · EKS up` · `depends: INF-106, INF-013`
+`labels: area:ci, type:task` · `milestone: M2 · Orchestration` · `depends: INF-106, INF-013`
 
 - [ ] Triggers on `main` with paths `services/**`, plus manual; credential check first; calls `make images`
 
@@ -789,7 +790,7 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 ## 14. Integration milestones (M1–M3)
 
 ### INF-123 · Deliverable Oct 29: workloads on EKS, injector kills, system revived
-`labels: area:ops, type:task, billable` · `milestone: M1 · EKS up` · `depends: INF-107, INF-111, INF-067, INF-074`
+`labels: area:ops, type:task, billable` · `milestone: M1 · EKS up` · `depends: INF-107, INF-111, INF-074`
 
 - [ ] backend-api, backend-worker, injector and the mock system run in their namespaces
 - [ ] A FAULT sent by hand to `faults` takes `orders` down; scaling back restores `/health`
@@ -871,3 +872,31 @@ AGENTS.md and the docs cross-reference `docs/*.md`, but the files are at the rep
 `labels: area:ops, area:docs, type:task` · `milestone: M4 · Polish` · `depends: INF-128`
 
 - [ ] Documented order to remove everything (cluster → foundation with `prevent_destroy` lifted → state bucket), plus what to export first (session data, screenshots)
+
+---
+
+## MVP · Nov 5 additions
+
+### INF-138 · ALB security group for the MVP: demo IPs only
+`labels: area:terraform, stack:cluster, type:task` · `milestone: MVP · Nov 5` · `depends: INF-051`
+
+Until CloudFront lands (M2), the SPA's dev proxy calls the ALB directly (D-25).
+- [ ] `oncall-training-alb`: inbound 80 only from `var.alb_ingress_cidrs` (list of /32s, no default; validation rejects `0.0.0.0/0`); every rule has a description
+- [ ] Output `alb_security_group_id`
+- [ ] Replaced by INF-059 (CloudFront prefix list) in M2
+
+### INF-139 · MVP config: no Redis, no Step Functions, dev auth
+`labels: area:k8s, area:ops, type:task, cross-repo` · `milestone: MVP · Nov 5` · `depends: INF-084, INF-085`
+
+The Nov 5 MVP runs without ElastiCache, Step Functions and Cognito (D-25, backend D-24).
+- [ ] `render-config.sh` writes the MVP backend keys: `AUTH_MODE=dev`, `ALLOW_DEV_AUTH=true`, `ORCHESTRATION_MODE=direct`, `FAULTS_QUEUE_URL`; no `REDIS_URL`, `STATE_MACHINE_ARN` or `COGNITO_*`
+- [ ] The injector runs without `REDIS_URL` (skips the Redis event in its record step until INF-100)
+- [ ] Documented in ARCHITECTURE §15; reverted in M2
+
+### INF-140 · Deliverable Nov 5: one incident loop on EKS
+`labels: area:ops, type:task, billable, cross-repo` · `milestone: MVP · Nov 5` · `depends: INF-123, INF-138, INF-139, INF-086, INF-099`
+
+First functional MVP flow (D-25).
+- [ ] From the SPA (`pnpm dev`, `/api` proxied to the ALB, dev auth): start `orders-down` → `orders` goes to 0 → `INCIDENT_ACTIVE` → scale `orders` to 2 → `RESOLVED` with TTR and score
+- [ ] The mock system is back to baseline afterwards
+- [ ] Demo steps written down; `make cluster-down` afterwards

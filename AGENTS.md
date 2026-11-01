@@ -127,7 +127,8 @@ oncall-training-infra/
 | Date | Deliverable relevant to this repo |
 |---|---|
 | Thu Oct 29 | EKS up; backend, mock system and injector running in separate namespaces; injector kills and the system can be revived |
-| Thu Nov 19 | Step Functions + both SQS queues integrated; ElastiCache serving the dashboard |
+| Thu Nov 5 | **MVP:** one incident loop on EKS (start → fault → fix → resolved) without Step Functions, ElastiCache, Cognito or CloudFront (DECISIONS D-25, ARCHITECTURE §15) |
+| Thu Nov 19 | Step Functions + both SQS queues integrated; ElastiCache serving the dashboard; the MVP shortcuts replaced |
 | Thu Nov 26 | Glue/Athena ready for the charts; e2e happy path on the deployed stack |
 
 ## 10. Glossary

@@ -330,3 +330,20 @@ The table is created here; **its item shape is owned by the backend** (backend A
   3. applies `k8s/overlays/local`
 - The local overlay has no Ingress and uses local images (`imagePullPolicy: Never`). The injector points at the backend's LocalStack (`AWS_ENDPOINT_URL=http://host.docker.internal:4566`, Redis on the host). The backend runs outside kind (`pnpm dev`, `pnpm dev:worker`) with `MOCK_CLUSTER=kubernetes` and the kind kubeconfig.
 - The local state machine: the backend keeps a copy at `local/statemachine.asl.json`. When `statemachines/scenario.asl.json` changes, tell the backend owner (or open a PR there).
+
+## 15. MVP mode (Nov 5 → Nov 19)
+
+Temporary setup for the first MVP (DECISIONS D-25). The contracts in §6–9 don't change; only who does each step.
+
+| Normal | MVP |
+|---|---|
+| The state machine sends `FAULT` to `faults` after `Warmup` (§6) | The backend api sends the same `FAULT` (§7) to `faults` itself, with `DelaySeconds` for the warmup (backend D-24) |
+| `PersistResolved` / `MarkFailed` write the end state; `SESSION_ENDED` triggers the reset | The backend worker writes `RESOLVED` / `FAILED` and resets the mock system |
+| ElastiCache: lock, dashboard snapshots, event buffer | None. One demo user; the api builds the dashboard on each request |
+| Cognito | `AUTH_MODE=dev` with `ALLOW_DEV_AUTH=true` (backend), `VITE_AUTH_MODE=dev` (frontend) |
+| CloudFront `/api/*` → ALB, ALB open only to CloudFront (INF-059) | The SPA's Vite dev proxy → ALB (`API_PROXY_TARGET`, frontend D-18); the ALB allows only `var.alb_ingress_cidrs` (INF-138) |
+
+- **Config** (INF-139): the backend gets `AUTH_MODE=dev`, `ALLOW_DEV_AUTH=true`, `ORCHESTRATION_MODE=direct` and `FAULTS_QUEUE_URL`, and no `REDIS_URL`, `STATE_MACHINE_ARN` or `COGNITO_*`. The injector runs without `REDIS_URL`.
+- The api needs `sqs:SendMessage` on `faults`; LabRole allows it.
+- Not deployed in the MVP: Step Functions, ElastiCache, Cognito, CloudFront and the site bucket, NetworkPolicies.
+- Deliverable: INF-140.
