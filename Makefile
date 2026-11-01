@@ -103,3 +103,67 @@ foundation-output: check-creds ## Show the foundation outputs (queue URLs, table
 	$(call tf_init,foundation)
 	@$(TF_FOUNDATION) output
 
+.PHONY: cluster-plan
+cluster-plan: check-creds ## Plan the cluster stack (VPC, EKS, nodes, add-ons, LB controller)
+	$(call tf_init,cluster)
+	@$(TF_CLUSTER) plan -input=false -out=cluster.tfplan
+
+# ---- Cluster lifecycle (ARCHITECTURE §13) ------------------------------------
+# ⚠ The cluster bills ≈ $0.25/h while it's up. cluster-down at the end of every session.
+
+.PHONY: cluster-up
+cluster-up: cluster-plan ## ⚠ Create the cluster, render config, apply k8s/overlays/aws (~20 min, billable)
+	@[ -f terraform/cluster/cluster.auto.tfvars ] || \
+	  echo "warning: no terraform/cluster/cluster.auto.tfvars; the ALB will accept no traffic (alb_ingress_cidrs = [])"
+	$(call confirm,This creates the EKS cluster (≈ \$$0.25/h until make cluster-down).)
+	@$(TF_CLUSTER) apply -input=false cluster.tfplan
+	@rm -f terraform/cluster/cluster.tfplan
+	@aws eks update-kubeconfig --region $(AWS_REGION) --name $(CLUSTER_NAME)
+	@$(MAKE) --no-print-directory render-config
+	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/k8s-apply.sh
+	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/status.sh
+
+.PHONY: cluster-down
+cluster-down: check-creds ## ⚠ Delete the Ingress (ALB), wait, then destroy the cluster stack
+	$(call confirm,This destroys the cluster stack. Foundation (data, users, images) stays up.)
+	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/cluster-down-wait.sh
+	$(call tf_init,cluster)
+	@$(TF_CLUSTER) destroy -input=false -auto-approve
+	@echo "Cluster destroyed. Foundation stays up (cents per day)."
+
+.PHONY: render-config
+render-config: check-creds ## Write k8s/overlays/aws/{config,cluster}.env from the Terraform outputs
+	$(call tf_init,foundation)
+	$(call tf_init,cluster)
+	@scripts/render-config.sh
+
+.PHONY: deploy
+deploy: check-creds ## ⚠ Roll out images: make deploy [BACKEND_TAG=<sha>] [INJECTOR_TAG=<sha>] [MOCK_TAG=<sha>]
+	$(call confirm,This rolls out BACKEND_TAG=$(BACKEND_TAG) INJECTOR_TAG=$(INJECTOR_TAG) MOCK_TAG=$(MOCK_TAG) on EKS.)
+	@aws eks update-kubeconfig --region $(AWS_REGION) --name $(CLUSTER_NAME) >/dev/null
+	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/deploy.sh BACKEND_TAG=$(BACKEND_TAG) INJECTOR_TAG=$(INJECTOR_TAG) MOCK_TAG=$(MOCK_TAG)
+
+.PHONY: status
+status: check-creds ## Nodes, pods per namespace, ALB DNS, image tags, cost reminder
+	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/status.sh
+
+.PHONY: check-rbac
+check-rbac: ## Check the RBAC of ARCHITECTURE §5.2 on the current cluster (read-only)
+	@scripts/check-rbac.sh
+
+# ---- Images ------------------------------------------------------------------
+
+.PHONY: images
+images: check-creds ## Build + push injector and mock-system to ECR (linux/amd64, git SHA tag)
+	$(call tf_init,foundation)
+	@scripts/images.sh
+
+# ---- Checks (no AWS) ---------------------------------------------------------
+
+.PHONY: k8s-validate
+k8s-validate: ## kustomize build + kubeconform for base and overlays
+	@scripts/k8s-validate.sh
+
+.PHONY: test
+test: ## Unit tests of the injector and mock system
+	@pnpm test
