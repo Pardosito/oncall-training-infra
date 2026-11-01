@@ -1,0 +1,16 @@
+{
+  "name": "@oncall-training/mock-system",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/main.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  }
+}
