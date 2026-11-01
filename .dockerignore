@@ -1,0 +1,13 @@
+**/node_modules
+**/dist
+**/coverage
+**/*.test.ts
+.git
+terraform
+k8s
+docs
+scripts
+statemachines
+**/.terraform
+*.tfstate*
+.env*

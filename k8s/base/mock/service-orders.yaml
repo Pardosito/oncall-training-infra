@@ -1,0 +1,17 @@
+# DNS name orders.mock.svc.cluster.local is part of the backend's MOCK_HEALTH_URL_TEMPLATE (cross-repo).
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders
+  namespace: mock
+  labels:
+    app.kubernetes.io/name: orders
+    app.kubernetes.io/component: mock
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: orders
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

@@ -1,0 +1,73 @@
+# Consumes the faults queue and breaks the mock system (ARCHITECTURE §8).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: injector
+  namespace: injector
+  labels:
+    app.kubernetes.io/name: injector
+    app.kubernetes.io/component: injector
+spec:
+  replicas: 1
+  # Singleton: never two pollers during a rollout.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: injector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: injector
+        app.kubernetes.io/component: injector
+    spec:
+      serviceAccountName: injector
+      # Long enough to finish an in-flight fault after SIGTERM.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        # The images run as USER node; a numeric uid lets the kubelet verify runAsNonRoot.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: injector
+          image: registry.invalid/oncall-training/injector:unset
+          envFrom:
+            - configMapRef:
+                name: oncall-config
+          env:
+            - name: MOCK_NAMESPACE
+              value: mock
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

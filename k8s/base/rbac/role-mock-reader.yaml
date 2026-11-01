@@ -1,0 +1,19 @@
+# backend-api: reads mock pods, deployments and logs for the dashboard.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mock-reader
+  namespace: mock
+  labels:
+    app.kubernetes.io/name: mock-reader
+    app.kubernetes.io/component: api
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]

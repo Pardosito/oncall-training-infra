@@ -1,0 +1,12 @@
+# Copy to cluster.auto.tfvars (gitignored) and adjust.
+owner = "ian"
+
+# MVP (INF-138): public IPs allowed to reach the ALB. Get yours with: curl -s https://checkip.amazonaws.com
+alb_ingress_cidrs = [
+  "203.0.113.7/32", # Ian
+  "198.51.100.9/32", # JP
+]
+
+# kubernetes_version = "1.35"   # aws eks describe-cluster-versions --default-only
+# node_instance_type = "t3.medium"
+# node_count         = 2

@@ -1,0 +1,16 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backend-worker-mock-operator
+  namespace: mock
+  labels:
+    app.kubernetes.io/name: backend-worker-mock-operator
+    app.kubernetes.io/component: worker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mock-operator
+subjects:
+  - kind: ServiceAccount
+    name: backend-worker
+    namespace: app

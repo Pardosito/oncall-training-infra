@@ -11,7 +11,7 @@ This repo holds:
 
 The app itself lives in [`oncall-training-backend`](https://github.com/Pardosito/oncall-training-backend) and [`oncall-training-frontend`](https://github.com/Pardosito/oncall-training-frontend).
 
-> **Status:** early setup (milestone M0). Most `make` targets below are planned and land over M0–M1; run `make help` to see what exists today.
+> **Status:** M0 (setup) done. M1 code written: foundation and cluster Terraform, injector, mock system, manifests and the cluster lifecycle targets. Not applied yet: foundation, the first cluster apply (spike) and the first image push are next. Then the first MVP, one incident loop on EKS (Thu Nov 5, [DECISIONS D-25](docs/DECISIONS.md)). Run `make help` for the targets that exist today.
 
 ## Docs
 
@@ -71,4 +71,40 @@ BUCKET="oncall-training-tfstate-$(aws sts get-caller-identity --query Account --
 terraform import awscc_s3_bucket.state "$BUCKET"
 terraform plan   # should say "No changes"
 cd ../.. && make backend-config   # rewrite foundation/ and cluster/ backend.hcl
+```
+
+## First time on a lab account (after `make bootstrap`)
+
+```bash
+make foundation-apply          # S3, DynamoDB, SQS, ECR (cheap, stays up)
+make foundation-output         # share the queue URLs, table and ECR URLs with the team
+cp terraform/cluster/terraform.tfvars.example terraform/cluster/cluster.auto.tfvars
+# edit alb_ingress_cidrs: your and your teammate's public IP (curl -s https://checkip.amazonaws.com)
+make images                    # needs Docker; builds linux/amd64 and pushes with the git SHA tag
+```
+
+## Demo: kill and revive (INF-123)
+
+```bash
+make cluster-up                # ~20 min; then:
+make deploy MOCK_TAG=<sha> INJECTOR_TAG=<sha>   # the tags printed by make images
+make check-rbac                # every line "ok"
+kubectl -n mock port-forward svc/gateway 8080:8080 &
+curl -s localhost:8080/health  # {"status":"up",...}
+
+# Send a FAULT by hand (ARCHITECTURE §7). The session item doesn't exist, so the record step
+# logs "already-recorded"; the fault is still applied.
+QUEUE=$(terraform -chdir=terraform/foundation output -raw faults_queue_url)
+aws sqs send-message --queue-url "$QUEUE" --message-body \
+  '{"faultId":"demo-1","sessionId":"demo","userId":"demo","type":"SCALE_TO_ZERO","target":{"namespace":"mock","deployment":"orders"}}'
+
+kubectl -n mock get deploy orders          # 0/0
+curl -s localhost:8080/health              # 503 {"status":"down","reason":"ECONNREFUSED ..."}
+kubectl -n injector logs deploy/injector   # "scaled to zero"
+kubectl -n mock logs deploy/gateway        # "GET /orders failed: ..."
+
+kubectl -n mock scale deploy/orders --replicas=2   # the fix
+curl -s localhost:8080/health              # up again
+
+make cluster-down              # always
 ```

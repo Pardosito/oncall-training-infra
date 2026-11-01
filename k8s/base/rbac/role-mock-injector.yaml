@@ -1,0 +1,16 @@
+# injector: applies SCALE_TO_ZERO and DELETE_PODS (ARCHITECTURE §8). Nothing outside `mock`.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mock-injector
+  namespace: mock
+  labels:
+    app.kubernetes.io/name: mock-injector
+    app.kubernetes.io/component: injector
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "patch"]

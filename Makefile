@@ -72,3 +72,98 @@ backend-config: ## Write the gitignored backend.hcl for foundation and cluster f
 	    "$$bucket" "$$stack" "$(AWS_REGION)" > terraform/$$stack/backend.hcl; \
 	  echo "Wrote terraform/$$stack/backend.hcl"; \
 	done
+
+# ---- Foundation and cluster stacks -------------------------------------------
+# Both use the S3 backend from backend.hcl (written by `make backend-config`).
+# Plans are saved to <stack>.tfplan so apply runs exactly what was shown.
+
+TF_FOUNDATION := terraform -chdir=terraform/foundation
+TF_CLUSTER    := terraform -chdir=terraform/cluster
+
+# $(call tf_init,<stack>)
+define tf_init
+	@[ -f terraform/$(1)/backend.hcl ] || { \
+	  echo "error: terraform/$(1)/backend.hcl missing; run make backend-config" >&2; exit 1; }
+	@terraform -chdir=terraform/$(1) init -input=false -backend-config=backend.hcl >/dev/null
+endef
+
+.PHONY: foundation-plan
+foundation-plan: check-creds ## Plan the foundation stack (S3, DynamoDB, SQS, ECR, ...)
+	$(call tf_init,foundation)
+	@$(TF_FOUNDATION) plan -input=false -out=foundation.tfplan
+
+.PHONY: foundation-apply
+foundation-apply: foundation-plan ## ⚠ Apply the foundation plan (asks first)
+	$(call confirm,This applies the foundation plan above.)
+	@$(TF_FOUNDATION) apply -input=false foundation.tfplan
+	@rm -f terraform/foundation/foundation.tfplan
+
+.PHONY: foundation-output
+foundation-output: check-creds ## Show the foundation outputs (queue URLs, table, ECR URLs) to share with the team
+	$(call tf_init,foundation)
+	@$(TF_FOUNDATION) output
+
+.PHONY: cluster-plan
+cluster-plan: check-creds ## Plan the cluster stack (VPC, EKS, nodes, add-ons, LB controller)
+	$(call tf_init,cluster)
+	@$(TF_CLUSTER) plan -input=false -out=cluster.tfplan
+
+# ---- Cluster lifecycle (ARCHITECTURE §13) ------------------------------------
+# ⚠ The cluster bills ≈ $0.25/h while it's up. cluster-down at the end of every session.
+
+.PHONY: cluster-up
+cluster-up: cluster-plan ## ⚠ Create the cluster, render config, apply k8s/overlays/aws (~20 min, billable)
+	@[ -f terraform/cluster/cluster.auto.tfvars ] || \
+	  echo "warning: no terraform/cluster/cluster.auto.tfvars; the ALB will accept no traffic (alb_ingress_cidrs = [])"
+	$(call confirm,This creates the EKS cluster (≈ \$$0.25/h until make cluster-down).)
+	@$(TF_CLUSTER) apply -input=false cluster.tfplan
+	@rm -f terraform/cluster/cluster.tfplan
+	@aws eks update-kubeconfig --region $(AWS_REGION) --name $(CLUSTER_NAME)
+	@$(MAKE) --no-print-directory render-config
+	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/k8s-apply.sh
+	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/status.sh
+
+.PHONY: cluster-down
+cluster-down: check-creds ## ⚠ Delete the Ingress (ALB), wait, then destroy the cluster stack
+	$(call confirm,This destroys the cluster stack. Foundation (data, users, images) stays up.)
+	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/cluster-down-wait.sh
+	$(call tf_init,cluster)
+	@$(TF_CLUSTER) destroy -input=false -auto-approve
+	@echo "Cluster destroyed. Foundation stays up (cents per day)."
+
+.PHONY: render-config
+render-config: check-creds ## Write k8s/overlays/aws/{config,cluster}.env from the Terraform outputs
+	$(call tf_init,foundation)
+	$(call tf_init,cluster)
+	@scripts/render-config.sh
+
+.PHONY: deploy
+deploy: check-creds ## ⚠ Roll out images: make deploy [BACKEND_TAG=<sha>] [INJECTOR_TAG=<sha>] [MOCK_TAG=<sha>]
+	$(call confirm,This rolls out BACKEND_TAG=$(BACKEND_TAG) INJECTOR_TAG=$(INJECTOR_TAG) MOCK_TAG=$(MOCK_TAG) on EKS.)
+	@aws eks update-kubeconfig --region $(AWS_REGION) --name $(CLUSTER_NAME) >/dev/null
+	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/deploy.sh BACKEND_TAG=$(BACKEND_TAG) INJECTOR_TAG=$(INJECTOR_TAG) MOCK_TAG=$(MOCK_TAG)
+
+.PHONY: status
+status: check-creds ## Nodes, pods per namespace, ALB DNS, image tags, cost reminder
+	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/status.sh
+
+.PHONY: check-rbac
+check-rbac: ## Check the RBAC of ARCHITECTURE §5.2 on the current cluster (read-only)
+	@scripts/check-rbac.sh
+
+# ---- Images ------------------------------------------------------------------
+
+.PHONY: images
+images: check-creds ## Build + push injector and mock-system to ECR (linux/amd64, git SHA tag)
+	$(call tf_init,foundation)
+	@scripts/images.sh
+
+# ---- Checks (no AWS) ---------------------------------------------------------
+
+.PHONY: k8s-validate
+k8s-validate: ## kustomize build + kubeconform for base and overlays
+	@scripts/k8s-validate.sh
+
+.PHONY: test
+test: ## Unit tests of the injector and mock system
+	@pnpm test

@@ -72,15 +72,17 @@ Browser ──► CloudFront ──┤ /*      → S3 site (OAC) + CloudFront Fu
 | Resource | Settings |
 |---|---|
 | VPC | `10.20.0.0/16`, 2 AZs (`us-east-1a`, `us-east-1b`); public subnets `10.20.0.0/20`, `10.20.16.0/20` (map public IP, tagged `kubernetes.io/role/elb=1`); private subnets `10.20.128.0/24`, `10.20.129.0/24` (no route to the internet); IGW; **no NAT** |
-| EKS cluster | `oncall-training`; current EKS standard-support version; role = LabRole; `authentication_mode = "API"`; `bootstrap_cluster_creator_admin_permissions = true`; public endpoint; control-plane logging off (cost) |
-| Access entries | Cluster admin policy for the lab principal (`arn:aws:iam::<acct>:role/voclabs`), so access survives credential rotation |
+| EKS cluster | `oncall-training`; current EKS standard-support version (`var.kubernetes_version`); role = LabRole; `authentication_mode = "API"`; `bootstrap_cluster_creator_admin_permissions = false` (D-26); `upgrade_policy` STANDARD (never extended support); public endpoint; control-plane logging off (cost) |
+| Access entries | Cluster admin policy for the lab principal (`arn:aws:iam::<acct>:role/voclabs`, from `data "aws_iam_session_context"`), so access survives credential rotation. The only entry: the automatic creator entry is off (D-26) |
 | Node group | `default`: **2× `t3.medium`**, `ON_DEMAND`, AL2023 x86_64, min 2 / desired 2 / max 3, public subnets, role = LabRole; launch template: IMDSv2 required, **`http_put_response_hop_limit = 2`** (so pods can use the node role), 20 GB gp3 |
 | Add-ons | `vpc-cni` with `{"enableNetworkPolicy": "true"}`, `coredns`, `kube-proxy` (versions pinned per EKS version) |
 | AWS Load Balancer Controller | `helm_release` (chart pinned) in `kube-system`; uses the node role (no service account annotation); `clusterName`, `region`, `vpcId` set explicitly |
 | ALB security group | `oncall-training-alb`: inbound 80 **only from the CloudFront origin-facing managed prefix list** (`com.amazonaws.global.cloudfront.origin-facing`); attached through Ingress annotations |
 | ElastiCache | Replication group `oncall-training`, engine **Valkey**, `cache.t3.micro` (or the smallest the lab allows), 1 node, private subnets, `transit_encryption_enabled = true`, no AUTH token; SG allows 6379 only from the EKS cluster/node security group |
 
-**Outputs:** `cluster_name`, `cluster_endpoint`, `redis_endpoint` (→ `rediss://<host>:6379`), `vpc_id`, `alb_security_group_id`.
+**Outputs:** `cluster_name`, `cluster_endpoint`, `redis_endpoint` (→ `rediss://<host>:6379`, M2), `vpc_id`, `vpc_cidr`, `alb_security_group_id`.
+
+**MVP (until Nov 19):** the ALB security group allows port 80 from `var.alb_ingress_cidrs` (the demo machines, set in the gitignored `cluster.auto.tfvars`; `0.0.0.0/0` is rejected), instead of the CloudFront prefix list (INF-138). No private subnets or ElastiCache yet.
 
 ## 5. Kubernetes layout (`k8s/`)
 
@@ -132,6 +134,8 @@ Egress isn't restricted in the MVP (pods need AWS APIs and Redis). Kubelet probe
 ### 5.4 Configuration
 
 - `scripts/render-config.sh` reads the foundation and cluster outputs and writes `k8s/overlays/aws/config.env` (gitignored). Kustomize's `configMapGenerator` turns it into ConfigMap `oncall-config` in `app` and `injector`. The hash suffix triggers a rollout when it changes.
+- It also writes `k8s/overlays/aws/cluster.env` (gitignored): `ECR_REGISTRY` and `ALB_SECURITY_GROUP_ID`. With the committed `images.env` (`MOCK_TAG`, `INJECTOR_TAG`, `BACKEND_TAG`), Kustomize `replacements` turn the base images `registry.invalid/oncall-training/<repo>:unset` into ECR images and set the Ingress security group (D-27). `*.env.example` files show the keys; `make k8s-validate` uses them when the real files don't exist.
+- The images run as the `node` user; pods set `runAsUser: 1000` so the kubelet can verify `runAsNonRoot`.
 - Backend variables (names match backend ARCHITECTURE §9): `AWS_REGION`, `SESSIONS_TABLE`, `FILES_BUCKET`, `USER_ACTIONS_QUEUE_URL`, `STATE_MACHINE_ARN`, `ATHENA_WORKGROUP`, `ATHENA_DATABASE`, `REDIS_URL` (`rediss://…`), `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `MOCK_NAMESPACE=mock`, `MOCK_HEALTH_URL_TEMPLATE=http://{service}.mock.svc.cluster.local:8080/health`, `AUTH_MODE=cognito`, `MOCK_CLUSTER=kubernetes`, `STATS_MODE=athena`.
 - Injector variables: `AWS_REGION`, `FAULTS_QUEUE_URL`, `SESSIONS_TABLE`, `REDIS_URL`, `MOCK_NAMESPACE=mock`.
 - No Kubernetes Secrets are needed in the MVP (no passwords; AWS credentials come from the node).
@@ -330,3 +334,20 @@ The table is created here; **its item shape is owned by the backend** (backend A
   3. applies `k8s/overlays/local`
 - The local overlay has no Ingress and uses local images (`imagePullPolicy: Never`). The injector points at the backend's LocalStack (`AWS_ENDPOINT_URL=http://host.docker.internal:4566`, Redis on the host). The backend runs outside kind (`pnpm dev`, `pnpm dev:worker`) with `MOCK_CLUSTER=kubernetes` and the kind kubeconfig.
 - The local state machine: the backend keeps a copy at `local/statemachine.asl.json`. When `statemachines/scenario.asl.json` changes, tell the backend owner (or open a PR there).
+
+## 15. MVP mode (Nov 5 → Nov 19)
+
+Temporary setup for the first MVP (DECISIONS D-25). The contracts in §6–9 don't change; only who does each step.
+
+| Normal | MVP |
+|---|---|
+| The state machine sends `FAULT` to `faults` after `Warmup` (§6) | The backend api sends the same `FAULT` (§7) to `faults` itself, with `DelaySeconds` for the warmup (backend D-24) |
+| `PersistResolved` / `MarkFailed` write the end state; `SESSION_ENDED` triggers the reset | The backend worker writes `RESOLVED` / `FAILED` and resets the mock system |
+| ElastiCache: lock, dashboard snapshots, event buffer | None. One demo user; the api builds the dashboard on each request |
+| Cognito | `AUTH_MODE=dev` with `ALLOW_DEV_AUTH=true` (backend), `VITE_AUTH_MODE=dev` (frontend) |
+| CloudFront `/api/*` → ALB, ALB open only to CloudFront (INF-059) | The SPA's Vite dev proxy → ALB (`API_PROXY_TARGET`, frontend D-18); the ALB allows only `var.alb_ingress_cidrs` (INF-138) |
+
+- **Config** (INF-139): the backend gets `AUTH_MODE=dev`, `ALLOW_DEV_AUTH=true`, `ORCHESTRATION_MODE=direct` and `FAULTS_QUEUE_URL`, and no `REDIS_URL`, `STATE_MACHINE_ARN` or `COGNITO_*`. The injector runs without `REDIS_URL`.
+- The api needs `sqs:SendMessage` on `faults`; LabRole allows it.
+- Not deployed in the MVP: Step Functions, ElastiCache, Cognito, CloudFront and the site bucket, NetworkPolicies.
+- Deliverable: INF-140.

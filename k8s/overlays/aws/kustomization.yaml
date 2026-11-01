@@ -1,0 +1,68 @@
+# EKS overlay (ARCHITECTURE §5). Inputs:
+#   images.env   committed   image tags (git SHAs); `make deploy` updates it
+#   cluster.env  gitignored  ECR_REGISTRY, ALB_SECURITY_GROUP_ID   (scripts/render-config.sh)
+#   config.env   gitignored  ConfigMap oncall-config for app + injector (scripts/render-config.sh)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+  - ingress-backend-api.yaml
+
+configMapGenerator:
+  - name: oncall-config
+    namespace: app
+    envs: [config.env]
+  - name: oncall-config
+    namespace: injector
+    envs: [config.env]
+  # Inputs for the replacements below; local-config keeps them out of the output.
+  - name: image-tags
+    envs: [images.env]
+    options:
+      disableNameSuffixHash: true
+      annotations:
+        config.kubernetes.io/local-config: "true"
+  - name: cluster-values
+    envs: [cluster.env]
+    options:
+      disableNameSuffixHash: true
+      annotations:
+        config.kubernetes.io/local-config: "true"
+
+# Backend stays off until its first image is in ECR (backend #27/#29). Delete this block in
+# the same change that sets BACKEND_TAG in images.env.
+replicas:
+  - name: backend-api
+    count: 0
+  - name: backend-worker
+    count: 0
+
+replacements:
+  # Tags: registry.invalid/oncall-training/<repo>:unset → …:<sha>
+  - source: { kind: ConfigMap, name: image-tags, fieldPath: data.MOCK_TAG }
+    targets:
+      - select: { kind: Deployment, namespace: mock }
+        fieldPaths: [spec.template.spec.containers.*.image]
+        options: { delimiter: ":", index: 1 }
+  - source: { kind: ConfigMap, name: image-tags, fieldPath: data.INJECTOR_TAG }
+    targets:
+      - select: { kind: Deployment, name: injector }
+        fieldPaths: [spec.template.spec.containers.*.image]
+        options: { delimiter: ":", index: 1 }
+  - source: { kind: ConfigMap, name: image-tags, fieldPath: data.BACKEND_TAG }
+    targets:
+      - select: { kind: Deployment, namespace: app }
+        fieldPaths: [spec.template.spec.containers.*.image]
+        options: { delimiter: ":", index: 1 }
+  # Registry: registry.invalid → <acct>.dkr.ecr.us-east-1.amazonaws.com
+  - source: { kind: ConfigMap, name: cluster-values, fieldPath: data.ECR_REGISTRY }
+    targets:
+      - select: { kind: Deployment }
+        fieldPaths: [spec.template.spec.containers.*.image]
+        options: { delimiter: "/", index: 0 }
+  - source: { kind: ConfigMap, name: cluster-values, fieldPath: data.ALB_SECURITY_GROUP_ID }
+    targets:
+      - select: { kind: Ingress, name: backend-api }
+        fieldPaths:
+          - "metadata.annotations.[alb.ingress.kubernetes.io/security-groups]"

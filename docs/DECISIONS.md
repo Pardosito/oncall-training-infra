@@ -38,6 +38,9 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-22 | 2026-10-22 | The e2e Cognito user is created by a script, not Terraform | Decided (answers frontend O-04) |
 | D-23 | 2026-10-22 | Docs written in English | Decided |
 | D-24 | 2026-10-27 | S3 buckets use `awscc_s3_bucket` (Cloud Control), not `aws_s3_bucket` | Decided (forced by Learner Lab) |
+| D-25 | 2026-10-27 | Nov 5 MVP: one incident loop on EKS without Step Functions, ElastiCache, Cognito or CloudFront | Decided (temporary until Nov 19) |
+| D-26 | 2026-11-01 | EKS access: one explicit access entry for the lab role; no automatic creator entry | Decided |
+| D-27 | 2026-11-01 | Image tags and account-specific values reach the aws overlay through Kustomize replacements | Decided |
 
 ---
 
@@ -132,6 +135,27 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 **Scope:** only the bucket itself. Everything else, including `aws_s3_bucket_policy` and `data "aws_s3_bucket"`, stays on the `aws` provider. `awscc` has no `default_tags`, so each stack builds `local.awscc_tags` from the same tag map.
 **Alternatives considered:** creating the buckets with the AWS CLI and referencing them with data sources (breaks "all AWS resources go through Terraform"); asking AWS Academy to relax the policy (not in our control).
 
+### D-25 · Nov 5 MVP shortcuts
+**Why:** the course added a first rough MVP, due Thu Nov 5, with at least one working flow. The incident loop (start → fault → fix → resolved) is the product, and it reuses the Oct 29 work (EKS, mock system, injector). Step Functions, ElastiCache, Cognito and CloudFront each take days of work and lab testing, and none of them is needed to show the loop.
+**What changes until Nov 19** (details in ARCHITECTURE §15):
+- The backend api sends `FAULT` to `faults` itself, and the worker writes `RESOLVED`/`FAILED` (backend D-24, `ORCHESTRATION_MODE=direct`).
+- No ElastiCache: no global lock (one demo user); the dashboard is built on request.
+- No Cognito: dev auth in the backend (`AUTH_MODE=dev`, `ALLOW_DEV_AUTH=true`) and the frontend.
+- No CloudFront: the SPA runs with `pnpm dev`, and its Vite proxy sends `/api` to the ALB (frontend D-18). The ALB security group allows only the demo machines' IPs (INF-138) instead of CloudFront's prefix list (INF-059).
+- NetworkPolicies, most CI and kind move to M2.
+**Kept:** the contracts (FAULT message, session item, API shapes) don't change, so M2 swaps implementations instead of rewriting them.
+**Alternatives considered:** demoing on kind (doesn't match the course's EKS story); calling the ALB from the browser with CORS (the backend and frontend forbid CORS).
+
+### D-26 · One explicit EKS access entry for the lab role
+**Why:** in the lab, the principal that creates the cluster *is* the `voclabs` role. With `bootstrap_cluster_creator_admin_permissions = true`, EKS creates an access entry for it, and the explicit `aws_eks_access_entry` for the same role then fails with "already exists". So the automatic entry is off and Terraform manages the only one. The role ARN comes from `data "aws_iam_session_context"` (the issuer of the assumed-role caller), so nothing is hardcoded and it works in any lab account. The ARN of the role doesn't change when credentials rotate, so `kubectl` keeps working after `make creds`.
+**Also:** `upgrade_policy { support_type = "STANDARD" }`, so the cluster never falls into extended support, which bills about 6× the standard control-plane rate.
+**Trade-off:** whoever applies the cluster stack must be the lab role; a different principal (e.g. a personal IAM user outside the lab) would get admin instead. Not a concern in the lab.
+
+### D-27 · Kustomize replacements for tags, registry and ALB security group
+**Why:** the aws overlay needs the ECR registry (contains the account id) and the ALB security group id, which must not be committed (AGENTS §4), plus the image tags, which should be committed so the running versions are visible in git (ARCHITECTURE §13.4). Kustomize's `images:` only takes literals. Instead, base images are `registry.invalid/oncall-training/<repo>:unset`, and `replacements` fill the tag from `images.env` (committed) and the registry and security group from `cluster.env` (gitignored, written by `render-config.sh`). Both inputs are `local-config` ConfigMaps, so they never reach the cluster.
+**Backend replicas:** the overlay sets `backend-api` and `backend-worker` to 0 replicas until the backend's first image is in ECR (backend #27/#29). The change that sets `BACKEND_TAG` removes that block.
+**Alternatives considered:** `kustomize edit set image` at deploy time (writes the account id into a committed file); `envsubst` over the build output (bypasses Kustomize and its validation).
+
 ---
 
 ## 3. Current limitations
@@ -150,6 +174,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 | L-10 | No metrics or alerting stack | Debugging relies on `kubectl logs` and CloudWatch (Step Functions) | `make status`; JSON logs |
 | L-11 | kind doesn't enforce NetworkPolicies by default | Local behavior can differ from EKS | Optional Calico in `make kind-up`; policies tested on EKS |
 | L-12 | The lab's SCP denies `s3:GetBucketObjectLockConfiguration` | `aws_s3_bucket` can't be used; buckets need a second provider (`awscc`) | D-24; CI rejects `aws_s3_bucket` (CONV §1.4) |
+| L-13 | Until Nov 19 (MVP, D-25): dev auth, no global lock, ALB reachable over plain HTTP from the demo IPs | Anyone on a listed IP can act as any user; two sessions at once would conflict | ALB limited to the demo machines' IPs; one demo user; replaced in M2 |
 
 ---
 

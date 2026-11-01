@@ -1,0 +1,38 @@
+# Public entry for the api (ARCHITECTURE §5.1). The ALB is created by the AWS Load Balancer
+# Controller; `make cluster-down` deletes this Ingress first so the ALB is gone before destroy.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend-api
+  namespace: app
+  labels:
+    app.kubernetes.io/name: backend-api
+    app.kubernetes.io/component: api
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/load-balancer-name: oncall-training-api
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    # Filled from cluster.env (terraform output alb_security_group_id).
+    alb.ingress.kubernetes.io/security-groups: set-by-cluster-env
+    alb.ingress.kubernetes.io/manage-backend-security-group-rules: "true"
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-api
+                port:
+                  name: http
+          - path: /healthz
+            pathType: Exact
+            backend:
+              service:
+                name: backend-api
+                port:
+                  name: http

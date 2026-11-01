@@ -10,3 +10,5 @@ coverage/
 *.kubeconfig
 .env*
 *.tfplan
+k8s/overlays/aws/cluster.env
+.cache/

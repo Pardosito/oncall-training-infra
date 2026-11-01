@@ -1,0 +1,7 @@
+# Backend workloads (ARCHITECTURE §5.1). The image comes from the backend repo's release workflow.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment-backend-api.yaml
+  - deployment-backend-worker.yaml
+  - service-backend-api.yaml
