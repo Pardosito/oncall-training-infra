@@ -39,6 +39,7 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-23 | 2026-10-22 | Docs written in English | Decided |
 | D-24 | 2026-10-27 | S3 buckets use `awscc_s3_bucket` (Cloud Control), not `aws_s3_bucket` | Decided (forced by Learner Lab) |
 | D-25 | 2026-10-27 | Nov 5 MVP: one incident loop on EKS without Step Functions, ElastiCache, Cognito or CloudFront | Decided (temporary until Nov 19) |
+| D-26 | 2026-11-01 | EKS access: one explicit access entry for the lab role; no automatic creator entry | Decided |
 
 ---
 
@@ -143,6 +144,11 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 - NetworkPolicies, most CI and kind move to M2.
 **Kept:** the contracts (FAULT message, session item, API shapes) don't change, so M2 swaps implementations instead of rewriting them.
 **Alternatives considered:** demoing on kind (doesn't match the course's EKS story); calling the ALB from the browser with CORS (the backend and frontend forbid CORS).
+
+### D-26 · One explicit EKS access entry for the lab role
+**Why:** in the lab, the principal that creates the cluster *is* the `voclabs` role. With `bootstrap_cluster_creator_admin_permissions = true`, EKS creates an access entry for it, and the explicit `aws_eks_access_entry` for the same role then fails with "already exists". So the automatic entry is off and Terraform manages the only one. The role ARN comes from `data "aws_iam_session_context"` (the issuer of the assumed-role caller), so nothing is hardcoded and it works in any lab account. The ARN of the role doesn't change when credentials rotate, so `kubectl` keeps working after `make creds`.
+**Also:** `upgrade_policy { support_type = "STANDARD" }`, so the cluster never falls into extended support, which bills about 6× the standard control-plane rate.
+**Trade-off:** whoever applies the cluster stack must be the lab role; a different principal (e.g. a personal IAM user outside the lab) would get admin instead. Not a concern in the lab.
 
 ---
 
