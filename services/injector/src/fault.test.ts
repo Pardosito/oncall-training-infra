@@ -12,7 +12,21 @@ const valid = {
 const body = (overrides: Record<string, unknown> = {}) =>
   JSON.stringify({ ...valid, ...overrides });
 
+// Verbatim copy of the backend's test/fixtures/fault-message.json (cross-repo contract).
+const backendFixture = `{
+  "faultId": "01JBQ5A7C2D3E4F5G6H7J8K9M0",
+  "sessionId": "01JBQ4ZJ8V2N7K3M5P6R8S9T0W",
+  "userId": "8f1c2b9e-0d4a-4c1e-9b7a-3f2e1d0c9b8a",
+  "type": "SCALE_TO_ZERO",
+  "target": { "namespace": "mock", "deployment": "orders" },
+  "sentAt": "2026-11-05T18:00:20.000Z"
+}`;
+
 describe("parseFault", () => {
+  it("accepts the backend's FAULT fixture", () => {
+    expect(parseFault(backendFixture, "mock").ok).toBe(true);
+  });
+
   it("accepts a valid SCALE_TO_ZERO", () => {
     const result = parseFault(body(), "mock");
     expect(result).toEqual({ ok: true, fault: valid });

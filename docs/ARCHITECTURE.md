@@ -229,11 +229,12 @@ The USER action shape is owned by the backend (backend ARCHITECTURE §8.5).
 - Loop: long-poll `faults` (`WaitTimeSeconds 20`). For each message:
   1. Parse it with zod; invalid messages are logged and left for the DLQ.
   2. Check the target: namespace must equal `MOCK_NAMESPACE`, and the deployment must be one of `gateway|orders|worker-svc`.
-  3. **Apply** the fault (idempotent):
+  3. **Check the session** (strongly consistent `GetItem`): apply only if `state = STARTING`. Otherwise (`INCIDENT_ACTIVE` after a restart, `FAILED`/`RESOLVED` because the user abandoned during the warmup, or no item) log, skip and delete the message. In the MVP the api sends `FAULT` with `DelaySeconds = warmupSeconds`, so a late fault for an abandoned session is expected.
+  4. **Apply** the fault (idempotent):
      - `SCALE_TO_ZERO`: patch `deployments/scale` to 0.
      - `DELETE_PODS`: delete the deployment's pods by label selector (the ReplicaSet recreates them, a short outage).
-  4. **Record** (cross-repo, backend D-12): conditional `UpdateItem` on `Sessions` (`state = STARTING` → `INCIDENT_ACTIVE`, `fault_injected_at`, `updated_at`). `ConditionalCheckFailed` means it was already applied; that's fine. Then `RPUSH session:{id}:events` a `FAULT_INJECTED` event in the backend's event-line format, and refresh the key's TTL.
-  5. Delete the message.
+  5. **Record** (cross-repo, backend D-12): conditional `UpdateItem` on `Sessions` (`state = STARTING` → `INCIDENT_ACTIVE`, `fault_injected_at`, `updated_at`). `ConditionalCheckFailed` means it was already applied; that's fine. Then `RPUSH session:{id}:events` a `FAULT_INJECTED` event in the backend's event-line format, and refresh the key's TTL.
+  6. Delete the message.
 - Order matters: apply first, then record, so TTD/TTR never start before the fault exists.
 - `SIGTERM`: stop polling, finish in-flight work, exit.
 - `/healthz` on 8080.

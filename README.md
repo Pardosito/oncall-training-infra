@@ -92,8 +92,10 @@ make check-rbac                # every line "ok"
 kubectl -n mock port-forward svc/gateway 8080:8080 &
 curl -s localhost:8080/health  # {"status":"up",...}
 
-# Send a FAULT by hand (ARCHITECTURE §7). The session item doesn't exist, so the record step
-# logs "already-recorded"; the fault is still applied.
+# Send a FAULT by hand (ARCHITECTURE §7). The injector only applies faults for a session in
+# STARTING, so create a throwaway session item first.
+aws dynamodb put-item --table-name Sessions --item \
+  '{"user_id":{"S":"demo"},"session_id":{"S":"demo"},"state":{"S":"STARTING"}}'
 QUEUE=$(terraform -chdir=terraform/foundation output -raw faults_queue_url)
 aws sqs send-message --queue-url "$QUEUE" --message-body \
   '{"faultId":"demo-1","sessionId":"demo","userId":"demo","type":"SCALE_TO_ZERO","target":{"namespace":"mock","deployment":"orders"}}'
@@ -105,6 +107,7 @@ kubectl -n mock logs deploy/gateway        # "GET /orders failed: ..."
 
 kubectl -n mock scale deploy/orders --replicas=2   # the fix
 curl -s localhost:8080/health              # up again
+aws dynamodb delete-item --table-name Sessions --key '{"user_id":{"S":"demo"},"session_id":{"S":"demo"}}'
 
 make cluster-down              # always
 ```
