@@ -3,12 +3,15 @@ import type { MockCluster } from "./cluster.js";
 import { parseFault, type Fault } from "./fault.js";
 import type { SessionRecorder } from "./recorder.js";
 
-// One FAULT message (ARCHITECTURE §8): parse → apply → record → (caller deletes).
+// One FAULT message (ARCHITECTURE §8): parse → check session → apply → record → (caller deletes).
 // Apply comes before record so TTD/TTR never start before the fault exists (INF-101).
+// The session check comes first so a fault for an abandoned or finished session is never
+// applied: the api sends FAULT with DelaySeconds = warmup, and the user can abandon meanwhile.
 
 export type HandleResult =
   | { kind: "done"; fault: Fault }
   | { kind: "duplicate"; fault: Fault }
+  | { kind: "skipped"; fault: Fault; reason: string }
   | { kind: "invalid"; error: string };
 
 export interface HandlerDeps {
@@ -39,10 +42,27 @@ export function createHandler(deps: HandlerDeps) {
       return { kind: "duplicate", fault };
     }
 
+    const state = await deps.recorder.getState(fault);
+    if (state !== "STARTING") {
+      // INCIDENT_ACTIVE: applied before a restart (the in-memory set is gone); don't break it twice.
+      // Anything else (FAILED, RESOLVED, no item): the session is over or never existed.
+      const reason = state === undefined ? "no session item" : `session is ${state}`;
+      log.warn({ state }, `not applying fault: ${reason}`);
+      seen.add(fault.faultId);
+      trimSeen(seen);
+      return { kind: "skipped", fault, reason };
+    }
+
     await apply(deps.cluster, fault, log);
 
     const outcome = await deps.recorder.recordFaultInjected(fault, now());
-    log.info({ outcome }, "session updated");
+    if (outcome === "recorded") {
+      log.info("session is INCIDENT_ACTIVE");
+    } else {
+      // The session left STARTING between the check and the apply (e.g. abandoned). The mock
+      // system stays broken until the worker's baseline reset for that session.
+      log.warn("fault applied but the session had already left STARTING");
+    }
 
     seen.add(fault.faultId);
     trimSeen(seen);

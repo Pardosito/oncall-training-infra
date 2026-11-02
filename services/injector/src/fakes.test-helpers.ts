@@ -16,7 +16,14 @@ export function faultBody(overrides: Record<string, unknown> = {}): string {
 }
 
 /** Records every call in one shared list, so tests can assert the order. */
-export function fakes(options: { recordOutcome?: RecordOutcome; applyError?: Error } = {}) {
+export function fakes(
+  options: {
+    recordOutcome?: RecordOutcome;
+    applyError?: Error;
+    /** `null` = no session item. Default STARTING. */
+    state?: string | null;
+  } = {},
+) {
   const calls: string[] = [];
   const cluster: MockCluster = {
     scaleToZero(deployment) {
@@ -29,6 +36,11 @@ export function fakes(options: { recordOutcome?: RecordOutcome; applyError?: Err
     },
   };
   const recorder: SessionRecorder = {
+    getState(fault) {
+      calls.push(`getState:${fault.sessionId}`);
+      const state = options.state === undefined ? "STARTING" : options.state;
+      return Promise.resolve(state ?? undefined);
+    },
     recordFaultInjected(fault) {
       calls.push(`record:${fault.sessionId}`);
       return Promise.resolve(options.recordOutcome ?? "recorded");

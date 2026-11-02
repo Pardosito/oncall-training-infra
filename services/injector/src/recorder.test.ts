@@ -1,5 +1,5 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { describe, expect, it, vi } from "vitest";
 import { createSessionRecorder } from "./recorder.js";
 import type { Fault } from "./fault.js";
@@ -40,6 +40,23 @@ describe("session recorder", () => {
     });
     expect(command.input.UpdateExpression).toContain("fault_injected_at = :now");
     expect(command.input.UpdateExpression).toContain("updated_at = :now");
+  });
+
+  it("reads the state with a consistent read", async () => {
+    const { doc, send } = docWith(() => Promise.resolve({ Item: { state: "FAILED" } }));
+    await expect(createSessionRecorder("Sessions", doc).getState(fault)).resolves.toBe("FAILED");
+    const command = (send.mock.calls[0] as unknown[])[0] as GetCommand;
+    expect(command).toBeInstanceOf(GetCommand);
+    expect(command.input).toMatchObject({
+      TableName: "Sessions",
+      Key: { user_id: "u-1", session_id: "s-1" },
+      ConsistentRead: true,
+    });
+  });
+
+  it("returns undefined when there's no session item", async () => {
+    const { doc } = docWith(() => Promise.resolve({}));
+    await expect(createSessionRecorder("Sessions", doc).getState(fault)).resolves.toBeUndefined();
   });
 
   it("treats ConditionalCheckFailed as already recorded", async () => {

@@ -30,6 +30,12 @@ describe("processMessage", () => {
     expect(commands[0]!.input).toMatchObject({ ReceiptHandle: "rh-1" });
   });
 
+  it("deletes a skipped fault (session already ended)", async () => {
+    const send = vi.fn(() => Promise.resolve({})) as unknown as Send;
+    await processMessage(deps(send, fakes({ state: "FAILED" })), message(faultBody()));
+    expect(vi.mocked(send).mock.calls.map((c) => c[0])[0]).toBeInstanceOf(DeleteMessageCommand);
+  });
+
   it("leaves an invalid message for the DLQ", async () => {
     const send = vi.fn(() => Promise.resolve({})) as unknown as Send;
     await processMessage(deps(send), message("not json"));
@@ -69,7 +75,7 @@ describe("startPoller", () => {
     poller.stop();
     await poller.done;
 
-    expect(f.calls).toEqual(["scaleToZero:orders", "record:s-1"]);
+    expect(f.calls).toEqual(["getState:s-1", "scaleToZero:orders", "record:s-1"]);
     expect(vi.mocked(send).mock.calls.some((c) => c[0] instanceof DeleteMessageCommand)).toBe(true);
   });
 

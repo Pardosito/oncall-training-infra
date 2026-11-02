@@ -10,7 +10,7 @@ describe("fault handler", () => {
     const f = fakes();
     const result = await make(f)(faultBody());
     expect(result.kind).toBe("done");
-    expect(f.calls).toEqual(["scaleToZero:orders", "record:s-1"]);
+    expect(f.calls).toEqual(["getState:s-1", "scaleToZero:orders", "record:s-1"]);
   });
 
   it("applies DELETE_PODS, then records", async () => {
@@ -18,7 +18,7 @@ describe("fault handler", () => {
     await make(f)(
       faultBody({ type: "DELETE_PODS", target: { namespace: "mock", deployment: "gateway" } }),
     );
-    expect(f.calls).toEqual(["deletePods:gateway", "record:s-1"]);
+    expect(f.calls).toEqual(["getState:s-1", "deletePods:gateway", "record:s-1"]);
   });
 
   it("treats an already-recorded session as done", async () => {
@@ -29,7 +29,7 @@ describe("fault handler", () => {
   it("doesn't record when the apply fails (so TTD never starts without a fault)", async () => {
     const f = fakes({ applyError: new Error("forbidden") });
     await expect(make(f)(faultBody())).rejects.toThrow("forbidden");
-    expect(f.calls).toEqual(["scaleToZero:orders"]);
+    expect(f.calls).toEqual(["getState:s-1", "scaleToZero:orders"]);
   });
 
   it("skips a redelivered faultId without touching the cluster again", async () => {
@@ -38,7 +38,7 @@ describe("fault handler", () => {
     await handle(faultBody({ type: "DELETE_PODS" }));
     const second = await handle(faultBody({ type: "DELETE_PODS" }));
     expect(second.kind).toBe("duplicate");
-    expect(f.calls).toEqual(["deletePods:orders", "record:s-1"]);
+    expect(f.calls).toEqual(["getState:s-1", "deletePods:orders", "record:s-1"]);
   });
 
   it("retries fully when a previous attempt failed", async () => {
@@ -55,7 +55,27 @@ describe("fault handler", () => {
       seen,
     })(faultBody());
     expect(result.kind).toBe("done");
-    expect(ok.calls).toEqual(["scaleToZero:orders", "record:s-1"]);
+    expect(ok.calls).toEqual(["getState:s-1", "scaleToZero:orders", "record:s-1"]);
+  });
+
+  it.each([
+    ["FAILED", "session is FAILED"],
+    ["RESOLVED", "session is RESOLVED"],
+    ["INCIDENT_ACTIVE", "session is INCIDENT_ACTIVE"],
+    [null, "no session item"],
+  ])("doesn't apply when the session is %s", async (state, reason) => {
+    const f = fakes({ state });
+    const result = await make(f)(faultBody());
+    expect(result).toMatchObject({ kind: "skipped", reason });
+    expect(f.calls).toEqual(["getState:s-1"]);
+  });
+
+  it("an abandoned-during-warmup fault is skipped again on redelivery", async () => {
+    const f = fakes({ state: "FAILED" });
+    const handle = make(f);
+    await handle(faultBody());
+    expect((await handle(faultBody())).kind).toBe("duplicate");
+    expect(f.calls).toEqual(["getState:s-1"]);
   });
 
   it("returns invalid without touching anything", async () => {
