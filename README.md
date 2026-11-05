@@ -73,6 +73,19 @@ terraform plan   # should say "No changes"
 cd ../.. && make backend-config   # rewrite foundation/ and cluster/ backend.hcl
 ```
 
+### Switching to a new lab account
+
+Everything is per account: the state bucket, the foundation resources and the images. After `make creds` with a different account:
+
+```bash
+make bootstrap           # moves the old local state to terraform/bootstrap/archive/<old account>/,
+                         # creates this account's state bucket and rewrites both backend.hcl
+make foundation-apply    # files bucket, Sessions, queues, ECR (empty)
+make images              # the injector and mock-system images don't carry over
+```
+
+Then run the backend's Release workflow so its image and scenarios exist in the new account. If `backend.hcl` still points at another account's bucket, every foundation/cluster target stops with a message saying so.
+
 ## First time on a lab account (after `make bootstrap`)
 
 ```bash

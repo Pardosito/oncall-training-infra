@@ -73,7 +73,7 @@ Browser ──► CloudFront ──┤ /*      → S3 site (OAC) + CloudFront Fu
 |---|---|
 | VPC | `10.20.0.0/16`, 2 AZs (`us-east-1a`, `us-east-1b`); public subnets `10.20.0.0/20`, `10.20.16.0/20` (map public IP, tagged `kubernetes.io/role/elb=1`); private subnets `10.20.128.0/24`, `10.20.129.0/24` (no route to the internet); IGW; **no NAT** |
 | EKS cluster | `oncall-training`; current EKS standard-support version (`var.kubernetes_version`); role = LabRole; `authentication_mode = "API"`; `bootstrap_cluster_creator_admin_permissions = false` (D-26); `upgrade_policy` STANDARD (never extended support); public endpoint; control-plane logging off (cost) |
-| Access entries | Cluster admin policy for the lab principal (`arn:aws:iam::<acct>:role/voclabs`, from `data "aws_iam_session_context"`), so access survives credential rotation. The only entry: the automatic creator entry is off (D-26) |
+| Access entries | Cluster admin policy for the lab principal (`arn:aws:iam::<acct>:role/voclabs`, parsed from the caller ARN; the lab denies `iam:GetRole` on voclabs), so access survives credential rotation. The only entry: the automatic creator entry is off (D-26) |
 | Node group | `default`: **2× `t3.medium`**, `ON_DEMAND`, AL2023 x86_64, min 2 / desired 2 / max 3, public subnets, role = LabRole; launch template: IMDSv2 required, **`http_put_response_hop_limit = 2`** (so pods can use the node role), 20 GB gp3 |
 | Add-ons | `vpc-cni` with `{"enableNetworkPolicy": "true"}`, `coredns`, `kube-proxy` (versions pinned per EKS version) |
 | AWS Load Balancer Controller | `helm_release` (chart pinned) in `kube-system`; uses the node role (no service account annotation); `clusterName`, `region`, `vpcId` set explicitly |
