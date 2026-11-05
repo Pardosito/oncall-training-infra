@@ -55,6 +55,7 @@ TF_BOOTSTRAP := terraform -chdir=terraform/bootstrap
 
 .PHONY: bootstrap
 bootstrap: check-creds ## Once per lab account: create the state bucket, then write backend.hcl
+	@scripts/bootstrap-account.sh
 	@$(TF_BOOTSTRAP) init -input=false
 	@$(TF_BOOTSTRAP) plan -input=false -out=bootstrap.tfplan
 	$(call confirm,This applies the bootstrap plan above.)
@@ -80,11 +81,9 @@ backend-config: ## Write the gitignored backend.hcl for foundation and cluster f
 TF_FOUNDATION := terraform -chdir=terraform/foundation
 TF_CLUSTER    := terraform -chdir=terraform/cluster
 
-# $(call tf_init,<stack>)
+# $(call tf_init,<stack>): checks backend.hcl is for the current account, then init -reconfigure.
 define tf_init
-	@[ -f terraform/$(1)/backend.hcl ] || { \
-	  echo "error: terraform/$(1)/backend.hcl missing; run make backend-config" >&2; exit 1; }
-	@terraform -chdir=terraform/$(1) init -input=false -backend-config=backend.hcl >/dev/null
+	@scripts/tf-init.sh $(1)
 endef
 
 .PHONY: foundation-plan

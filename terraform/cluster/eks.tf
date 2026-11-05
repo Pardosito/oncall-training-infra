@@ -33,7 +33,7 @@ resource "aws_eks_cluster" "this" {
 # so kubectl keeps working after credentials rotate.
 resource "aws_eks_access_entry" "lab_admin" {
   cluster_name  = aws_eks_cluster.this.name
-  principal_arn = data.aws_iam_session_context.current.issuer_arn
+  principal_arn = local.lab_principal_arn
   type          = "STANDARD"
 }
 

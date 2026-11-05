@@ -30,14 +30,6 @@ configMapGenerator:
       annotations:
         config.kubernetes.io/local-config: "true"
 
-# Backend stays off until its first image is in ECR (backend #27/#29). Delete this block in
-# the same change that sets BACKEND_TAG in images.env.
-replicas:
-  - name: backend-api
-    count: 0
-  - name: backend-worker
-    count: 0
-
 replacements:
   # Tags: registry.invalid/oncall-training/<repo>:unset → …:<sha>
   - source: { kind: ConfigMap, name: image-tags, fieldPath: data.MOCK_TAG }
