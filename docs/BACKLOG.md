@@ -5,6 +5,8 @@ Section references (§) point to `ARCHITECTURE.md` unless stated otherwise. `CON
 
 **Format.** Every issue has one heading `### INF-NNN · <title>`, then one metadata line, then a short description and a "Done when" checklist. Keep that shape so the backlog can be turned into GitHub issues by a script.
 
+**Progress** is tracked on the [GitHub issues](https://github.com/Pardosito/oncall-training-infra/issues) of this repo: the checklists here are each issue's acceptance criteria, so they stay unchecked in this file. What is built today is summarized in the [infra plan](planning/infra-plan.md#2-built-for-the-intermediate-delivery).
+
 **Milestones**
 
 | Milestone | Target | Goal |
@@ -12,7 +14,7 @@ Section references (§) point to `ARCHITECTURE.md` unless stated otherwise. `CON
 | `M0 · Setup` | Tue Oct 27 | Repo skeleton, tooling, creds, state bucket |
 | `M1 · EKS up` | **Thu Oct 29** | Foundation basics + EKS; backend, mock system and injector running in separate namespaces; injector kills, system can be revived |
 | `MVP · Nov 5` | **Thu Nov 5** | One incident loop on EKS (start → fault → fix → resolved) without Step Functions, ElastiCache, Cognito or CloudFront (D-25) |
-| `M2 · Orchestration` | **Thu Nov 19** | Step Functions + both SQS queues integrated; ElastiCache serving the dashboard; CloudFront + Cognito; replaces the MVP shortcuts. Also NetworkPolicies, CI and kind (moved from M1) |
+| `M2 · Orchestration` | **Thu Nov 19** | Step Functions + both SQS queues integrated; ElastiCache serving the dashboard; CloudFront + Cognito; replaces the MVP shortcuts. Also NetworkPolicies, CI and kind |
 | `M3 · Data + e2e` | **Thu Nov 26** | Glue/Athena ready; e2e happy path on the deployed stack |
 | `M4 · Polish` | after Nov 26 | Docs, hardening, CV polish, stretch items |
 

@@ -94,7 +94,6 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 ### D-13 · Wait for the fix through SQS, not DynamoDB
 **Why:** Step Functions' DynamoDB integration only supports request-response. It **can't** pause for a task token, so the backend's original plan (backend D-09: "`dynamodb:updateItem.waitForTaskToken`") isn't possible. SQS `sendMessage.waitForTaskToken` is supported. The state machine sends `AWAIT_FIX` with the token to `user-actions.fifo` (same FIFO group as the user's actions), and the worker stores the token on the session item.
 **Alternatives considered:** a Lambda that stores the token (another deploy unit, also on LabRole).
-**Action:** the backend docs must be updated (task token written by the worker; new `AWAIT_FIX` system message).
 
 ### D-14 · Cross-repo proposals accepted
 - Backend D-11: `SESSION_ENDED` on every terminal path.
@@ -142,7 +141,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 - The backend api sends `FAULT` to `faults` itself, and the worker writes `RESOLVED`/`FAILED` (backend D-24, `ORCHESTRATION_MODE=direct`).
 - No ElastiCache: no global lock (one demo user); the dashboard is built on request.
 - No Cognito: dev auth in the backend (`AUTH_MODE=dev`, `ALLOW_DEV_AUTH=true`) and the frontend.
-- No CloudFront: the SPA runs with `pnpm dev`, and its Vite proxy sends `/api` to the ALB (frontend D-18). The ALB security group allows only the demo machines' IPs (INF-138) instead of CloudFront's prefix list (INF-059).
+- No CloudFront: the SPA runs with `pnpm dev`, and its Vite proxy sends `/api` to the ALB (frontend D-18). The ALB security group allows only the demo machines' IPs instead of CloudFront's prefix list.
 - NetworkPolicies, most CI and kind move to M2.
 **Kept:** the contracts (FAULT message, session item, API shapes) don't change, so M2 swaps implementations instead of rewriting them.
 **Alternatives considered:** demoing on kind (doesn't match the course's EKS story); calling the ALB from the browser with CORS (the backend and frontend forbid CORS).
@@ -154,7 +153,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 
 ### D-27 · Kustomize replacements for tags, registry and ALB security group
 **Why:** the aws overlay needs the ECR registry (contains the account id) and the ALB security group id, which must not be committed (AGENTS §4), plus the image tags, which should be committed so the running versions are visible in git (ARCHITECTURE §13.4). Kustomize's `images:` only takes literals. Instead, base images are `registry.invalid/oncall-training/<repo>:unset`, and `replacements` fill the tag from `images.env` (committed) and the registry and security group from `cluster.env` (gitignored, written by `render-config.sh`). Both inputs are `local-config` ConfigMaps, so they never reach the cluster.
-**Backend replicas:** the overlay sets `backend-api` and `backend-worker` to 0 replicas until the backend's first image is in ECR (backend #27/#29). The change that sets `BACKEND_TAG` removes that block.
+**Backend replicas:** while no backend image existed in ECR, the overlay kept `backend-api` and `backend-worker` at 0 replicas. That block was removed when `BACKEND_TAG` was first set.
 **Alternatives considered:** `kustomize edit set image` at deploy time (writes the account id into a committed file); `envsubst` over the build output (bypasses Kustomize and its validation).
 
 
@@ -180,7 +179,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 | L-10 | No metrics or alerting stack | Debugging relies on `kubectl logs` and CloudWatch (Step Functions) | `make status`; JSON logs |
 | L-11 | kind doesn't enforce NetworkPolicies by default | Local behavior can differ from EKS | Optional Calico in `make kind-up`; policies tested on EKS |
 | L-12 | The lab's SCP denies `s3:GetBucketObjectLockConfiguration` | `aws_s3_bucket` can't be used; buckets need a second provider (`awscc`) | D-24; CI rejects `aws_s3_bucket` (CONV §1.4) |
-| L-13 | Until Nov 19 (MVP, D-25): dev auth, no global lock, ALB reachable over plain HTTP from the demo IPs | Anyone on a listed IP can act as any user; two sessions at once would conflict | ALB limited to the demo machines' IPs; one demo user; replaced in M2 |
+| L-13 | Direct mode (D-25): dev auth, no global lock, ALB reachable over plain HTTP from the demo IPs | Anyone on a listed IP can act as any user; two sessions at once would conflict | ALB limited to the demo machines' IPs; one demo user; replaced by Cognito, ElastiCache and CloudFront for the final delivery |
 
 ---
 
@@ -206,8 +205,8 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 
 | ID | Question | Owner | Blocks |
 |---|---|---|---|
-| O-01 | **Learner Lab smoke test:** EKS with LabRole as cluster and node role; LB controller working on the node role; the smallest allowed ElastiCache node type; Cognito managed login domain; CloudFront Functions; Step Functions logging with LabRole; VPC CNI network policy agent permissions | Ian | Everything in `cluster` |
-| O-02 | The success criterion says the **injector** "kills and revives" a service. Today the user's fix and the backend worker's reset revive it. If the injector itself must revive it, add a `RESTORE_BASELINE` fault type sent by the state machine at the end (instead of the worker reset) | Ian (ask the professor) | State machine end path |
+| O-01 | **Learner Lab smoke test.** Verified: EKS with LabRole as cluster and node role (D-26), LB controller on the node role. Still to check: the smallest allowed ElastiCache node type; Cognito managed login domain; CloudFront Functions; Step Functions logging with LabRole; VPC CNI network policy agent permissions | Ian | Everything in `cluster` |
+| O-02 | The success criterion says the **injector** "kills and revives" a service. Today the user's fix and the backend worker's reset revive it. If the injector itself must revive it, add a `RESTORE_BASELINE` fault type sent by the state machine at the end (instead of the worker reset) | Ian | State machine end path |
 | O-03 | Does JSONata's `TimeoutSeconds` expression and `sqs:sendMessage.waitForTaskToken` with FIFO arguments (`MessageGroupId`, `MessageDeduplicationId`) work as written? Verify with TestState | Ian | `WaitForFix` |
 | O-04 | Do the VPC CNI network policies allow kubelet probes and ALB IP-target traffic as expected (§5.3)? | Ian | NetworkPolicies |
 | O-05 | Does LocalStack's Step Functions support `sqs:sendMessage.waitForTaskToken`, for the backend's local loop? | JP | Backend local full loop (backend O-02) |

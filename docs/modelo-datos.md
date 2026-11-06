@@ -12,7 +12,7 @@ Entregable 2 de la entrega intermedia. La fuente de verdad del item es la [ARCHI
 | Operación | Sin servidor, sin VPC, sin parches; los pods lo usan con LabRole | Subredes privadas, security groups, credenciales que guardar |
 | Analítica | Los eventos históricos van a S3 + Athena, no a la tabla | Tentaría a hacer reportes sobre la base transaccional |
 
-**Desventaja aceptada:** no hay consultas flexibles. Cada consulta nueva necesita su llave o un GSI. Para el MVP (Nov 5) hay una excepción temporal: un `Scan` filtrado para saber si ya hay una sesión activa, que se reemplaza por un lock en Redis en la entrega final (backend D-30).
+**Desventaja aceptada:** no hay consultas flexibles. Cada consulta nueva necesita su llave o un GSI. En la entrega intermedia hay una excepción temporal: un `Scan` filtrado para saber si ya hay una sesión activa, que se reemplaza por un lock en Redis en la entrega final (backend D-30).
 
 ## Tabla `Sessions`
 
@@ -20,7 +20,7 @@ On-demand, PITR activado, protección contra borrado.
 
 | Llave | Atributo | Tipo |
 |---|---|---|
-| **PK** (partition) | `user_id` | S: id del usuario (Cognito `sub`; en el MVP el header `x-dev-user`) |
+| **PK** (partition) | `user_id` | S: id del usuario (Cognito `sub`; en la entrega intermedia, el header `x-dev-user`) |
 | **SK** (sort) | `session_id` | S: ULID, así que ordenar por SK = ordenar por fecha |
 
 ### Atributos
@@ -35,8 +35,8 @@ On-demand, PITR activado, protección contra borrado.
 | `acknowledged_at` | S | worker | primer `ACKNOWLEDGE` del usuario |
 | `valid_fix_applied_at` | S | worker | primera acción que corrige la falla |
 | `wrong_actions`, `actions_count` | N | worker | `ADD` atómico |
-| `score`, `ttd_seconds`, `ttr_seconds` | N | worker (MVP) / Step Functions (final) | solo si `RESOLVED` |
-| `ended_at`, `failure_reason` | S | worker (MVP) / Step Functions (final) | `TIMEOUT`, `ABANDONED`, `ERROR` |
+| `score`, `ttd_seconds`, `ttr_seconds` | N | worker (intermedia) / Step Functions (final) | solo si `RESOLVED` |
+| `ended_at`, `failure_reason` | S | worker (intermedia) / Step Functions (final) | `TIMEOUT`, `ABANDONED`, `ERROR` |
 | `execution_arn`, `task_token` | S | api / Step Functions | **planeado** (final) |
 
 ### GSI `Leaderboard`

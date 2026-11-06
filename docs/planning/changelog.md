@@ -1,57 +1,52 @@
 # On-Call Training: changelog
 
-What changed in the project and in these notes, newest first. Details live in each area's decisions note: [Infra decisions](../DECISIONS.md) · [Back decisions](https://github.com/Pardosito/oncall-training-backend/blob/main/docs/DECISIONS.md) · [Front decisions](https://github.com/Pardosito/oncall-training-frontend/blob/main/docs/DECISIONS.md). Back to the [On-Call Training](README.md) hub.
+What changed in the project, newest first. Details live in each area's decisions file: [Infra decisions](../DECISIONS.md) · [Back decisions](https://github.com/Pardosito/oncall-training-backend/blob/main/docs/DECISIONS.md) · [Front decisions](https://github.com/Pardosito/oncall-training-frontend/blob/main/docs/DECISIONS.md). Back to the [Roadmap](README.md).
 
 ---
 
-## Tue Nov 3: backend MVP loop merged, frontend re-pinned
+## Thu Nov 5: intermediate delivery
 
-- Backend merged `feat/mvp-loop` (PR #132, `5ff88e6`).
-- Frontend PR #127 re-pins `BACKEND_REF` to `5ff88e6`. The spec only adds the logs and abandon routes and `LogsResponse`, so no frontend code changed (they're for M2, #88/#89). CI passes; waiting for merge.
+- Infra: the deliverables for the course review are in `docs/`: solution diagram (`solucion.png`), data model, API design, deployment evidence and the to-do list for the final delivery.
+- Infra D-28: no API Gateway. CloudFront is the edge and the ALB routes to the pods.
+- Infra: `BACKEND_TAG` set to `2688b14`, so the backend runs on EKS with the rest of the system.
 
-## Mon Nov 2: frontend history rewrite and re-pin
+## Wed Nov 4: lab account switch
 
-- Backend MVP loop built on `feat/mvp-loop` (not committed yet): backend D-29 to D-31, plus logs and abandon routes (see [Back decisions](https://github.com/Pardosito/oncall-training-backend/blob/main/docs/DECISIONS.md)). The frontend ran the full loop against it through the Vite proxy: resolved with score 902, every response matched the pinned spec.
-- Frontend PR #126 (`feat/m1-mvp-foundation`) is merged to `main`.
+- Infra: the Makefile and scripts handle moving to a new lab account (`make bootstrap` archives the old local state and rewrites `backend.hcl`).
+- Infra D-26 updated: the lab role ARN is parsed from the caller ARN, because the lab denies `iam:GetRole` on `voclabs`.
 
-- The backend merged `feat/m1-platform` into `main` (PR #131, regular merge). `BACKEND_REF` is re-pinned to `6710d2e`; the spec is byte-identical, so the types are unchanged. Frontend D-19 updated, L-11 resolved.
-- Closed 67 frontend issues on GitHub, each with a comment naming its commit. Left open even though partly built: #26, #43, #44 (their Cognito criteria wait on #40) and #48 (nav on the landing page waits on #56). Still open for the MVP: #97.
+## Tue Nov 3: backend loop merged
 
-## Sun Nov 1: frontend M1 + MVP implementation
+- Backend merged the incident loop (PR #132). Its release workflow validates the scenarios and syncs them to S3.
+- Frontend PR #127 re-pins `BACKEND_REF` to `5ff88e6`. The spec only adds the logs and abandon routes and `LogsResponse`, so no frontend code changed.
 
-- `oncall-front`, branch `feat/m1-mvp-foundation` (pushed, 13 commits + a re-pin commit on Nov 2, no PR yet): 71 of the 83 M1 + MVP issues implemented (11 deferred by D-20, FE-097 left) (see [Front plan (M1 + MVP)](front-plan.md) §8). The incident loop works end to end against MSW. 94 tests, lint, typecheck and build all pass.
-- The frontend now uses the backend's real `openapi.json` (first pinned to `c94cd07` on `feat/m1-platform`; re-pinned on Nov 2, see below) instead of a draft. The backend added both frontend requests the same day: `actionsCount` on `SessionView` and an `ErrorCode` enum.
-- New frontend decisions D-19 to D-24; D-20 (Cognito and similar issues to M2) is still **proposed**. D-14 marked Decided, O-01 and O-04 closed.
-- Left for the MVP: FE-097, the run against EKS on Wed Nov 4.
+## Mon Nov 2: infra M1 merged, frontend on the real spec
 
-## Fri Oct 30: M1 + MVP plan
+- Infra merged `infra/m1-eks-up` (PR #142): foundation and cluster stacks, mock system, injector, manifests and the cluster lifecycle targets. The injector skips faults for sessions that already left `STARTING`.
+- Backend merged its platform layer (PR #131). The frontend re-pinned `BACKEND_REF` to `6710d2e`; the spec was byte-identical.
+- The frontend ran the full loop against the backend through the Vite proxy: resolved with score 902, every response matched the pinned spec.
+- Frontend PR #126 merged: 71 of the 83 M1 + intermediate-delivery issues; Cognito and related issues moved to M2 (frontend D-20).
 
-**Notes**
-- The folder is split into `Infra/`, `Back/` and `Front/`, with a hub ([On-Call Training](README.md)) and this changelog.
-- `M1 implementation plan` → `Infra/Infra plan (M1 + MVP)`; `Infrastructure decisions` → `Infra/Infra decisions`. Content unchanged except the "Related" links.
-- New: [Back plan (M1 + MVP)](back-plan.md), [Back decisions](https://github.com/Pardosito/oncall-training-backend/blob/main/docs/DECISIONS.md), [Front plan (M1 + MVP)](front-plan.md), [Front decisions](https://github.com/Pardosito/oncall-training-frontend/blob/main/docs/DECISIONS.md).
+## Sun Nov 1: implementation
 
-**Status found**
-- GitHub: infra M1 0/50 and MVP 0/8; backend M1 0/22 and MVP 0/45; frontend M1 0/61 and MVP 0/22. The Oct 29 deliverable was missed in all three repos.
-- Frontend repo: docs only. FE-001 is still open; AGENTS/CLAUDE/README are in `docs/` and should go back to the root.
-- Docs drift: backend and frontend docs still say "Proposed" for items infra accepted on Oct 22 (infra D-14). Backend D-09 still describes an integration infra replaced (infra D-13).
+- Infra: foundation stack (S3, DynamoDB, SQS, ECR), cluster stack (VPC, EKS, node group, add-ons, LB controller), mock system and injector with tests, base manifests and the aws overlay, ops targets. New decisions D-26 and D-27.
+- Backend: platform, contracts and the generated OpenAPI spec, Dockerfile, CI image build and ECR release workflow, domain logic (scoring, action rules, snapshot builder).
+- Frontend: the incident loop works end to end against MSW. 94 tests, lint, typecheck and build pass. New frontend decisions D-19 to D-24.
 
-**Proposed (waiting for review, nothing changed in the repos or on GitHub)**
-- Infra: 8 review items (infra plan §10), e.g. EKS access entry only, compute the state bucket name, plain VPC resources, `linux/amd64` images.
-- Backend: P-01 to P-11, e.g. contract-first spec on Sat, BE-034 into MVP, Redis client (BE-023) to M2, MVP config optional by mode, in-memory resolution counter, trimmed dev-inject.
-- Frontend: P-01 to P-08, e.g. docs back to the root, draft-spec fallback, dev auth decoupled from Cognito, 20 issues deferred to M2.
-- Cross-repo: X-1 to X-6 in the hub (workload split, milestone updates, handoff dates H1–H8).
+## Fri Oct 30: plan for M1 and the intermediate delivery
 
-## Tue Oct 27: M0 and the Nov 5 MVP
+- Per-area plans written for infra, backend and frontend, plus this roadmap.
+- Order: infra builds the stacks and services while the backend publishes its spec first (contract-first), so the frontend works against the real contract.
+
+## Tue Oct 27: M0 and the intermediate delivery
 
 - Infra M0 done (15/15). The lab blocks `aws_s3_bucket` → `awscc_s3_bucket` (infra D-24).
-- Backend M0 done (11/11): tooling, CI, templates, README; AGENTS/CLAUDE/README kept at the root.
-- The course added a **rough MVP due Nov 5**: infra D-25, backend D-24 and frontend D-18. No Step Functions, Redis, Cognito or CloudFront until Nov 19. New MVP milestones and issues in all three repos (infra #138–140, backend #127–130, frontend #125).
-- Project timelines updated in all three repos' AGENTS.md.
+- Backend M0 done (11/11): tooling, CI, templates, README.
+- The course added an intermediate delivery on Nov 5 with one working flow: infra D-25, backend D-24 and frontend D-18. Step Functions, Redis, Cognito and CloudFront move to Nov 19.
 
 ## Sun Oct 25
 
-- Docs moved into `docs/` in the backend and frontend repos (the frontend move also took AGENTS/CLAUDE/README).
+- Docs moved into `docs/` in the backend and frontend repos.
 
 ## Thu Oct 22: initial design
 

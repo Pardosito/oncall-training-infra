@@ -166,3 +166,9 @@ k8s-validate: ## kustomize build + kubeconform for base and overlays
 .PHONY: test
 test: ## Unit tests of the injector and mock system
 	@pnpm test
+
+# ---- Docs --------------------------------------------------------------------
+
+.PHONY: diagram
+diagram: ## Render docs/solucion.mmd → docs/solucion.png (needs Node; downloads mermaid-cli)
+	@npx -y @mermaid-js/mermaid-cli@11 -i docs/solucion.mmd -o docs/solucion.png -w 2400 -s 2 -b white

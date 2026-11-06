@@ -5,13 +5,11 @@ Infrastructure for **On-Call Training**, a web app where students and junior SDE
 This repo holds:
 - **Terraform** for every AWS resource, in three stacks: `bootstrap` (state bucket), `foundation` (cheap, always on) and `cluster` (EKS and everything billed hourly)
 - **Kubernetes manifests** (Kustomize) for all workloads, including the backend's
-- the **Step Functions** state machine that drives a scenario
 - the **injector** and the **mock system**, two small TypeScript services
-- the workflows and `make` targets that build images, bring the cluster up and down, and roll out releases
+- the `make` targets that build images, bring the cluster up and down, and roll out releases
+- *(planned)* the **Step Functions** state machine that drives a scenario, and the GitHub workflows
 
 The app itself lives in [`oncall-training-backend`](https://github.com/Pardosito/oncall-training-backend) and [`oncall-training-frontend`](https://github.com/Pardosito/oncall-training-frontend).
-
-> **Status:** M0 (setup) done. M1 code written: foundation and cluster Terraform, injector, mock system, manifests and the cluster lifecycle targets. Not applied yet: foundation, the first cluster apply (spike) and the first image push are next. Then the first MVP, one incident loop on EKS (Thu Nov 5, [DECISIONS D-25](docs/DECISIONS.md)). Run `make help` for the targets that exist today.
 
 ## Entrega intermedia · Desarrollo en la Nube (ITESO, Otoño 2026)
 
@@ -21,6 +19,14 @@ The app itself lives in [`oncall-training-backend`](https://github.com/Pardosito
 |---|---|
 | Ian Rodríguez | Infraestructura y orquestación (este repo) |
 | Juan Pablo González | Backend y frontend |
+
+### Caso de uso de punta a punta
+
+Un usuario inicia el escenario `orders-down`. El backend guarda la sesión en DynamoDB y manda una falla a SQS. El injector apaga el servicio `orders` del sistema simulado en EKS. El usuario ve el incidente en el dashboard, escala `orders` de vuelta y el worker detecta la recuperación, calcula el puntaje y marca la sesión `RESOLVED`.
+
+![Diagrama de la solución](docs/solucion.png)
+
+Verde: desplegado hoy. Gris punteado: planeado para la entrega final. Fuente editable en [`docs/solucion.mmd`](docs/solucion.mmd) (`make diagram`).
 
 ### Repositorios
 
@@ -34,18 +40,29 @@ The app itself lives in [`oncall-training-backend`](https://github.com/Pardosito
 
 | # | Entregable | Dónde |
 |---|---|---|
-| 1 | Diagrama de la solución | `docs/solucion.png` (pendiente) · versión Mermaid en [docs/planning](docs/planning/README.md#2-the-mvp-in-one-picture) |
+| 1 | Diagrama de la solución | [docs/solucion.png](docs/solucion.png) |
 | 2 | Modelo de datos | [docs/modelo-datos.md](docs/modelo-datos.md) |
 | 3 | Diseño de la API | [docs/api.md](docs/api.md) |
-| 4 | Código fuente | Backend + `Dockerfile`: [oncall-training-backend](https://github.com/Pardosito/oncall-training-backend) · infra, servicios y scripts: [`terraform/`](terraform), [`k8s/`](k8s), [`services/`](services), [`scripts/`](scripts) |
+| 4 | Código fuente | Backend + `Dockerfile`: [oncall-training-backend](https://github.com/Pardosito/oncall-training-backend) (`src/`, `Dockerfile`). Infraestructura y servicios: [`terraform/`](terraform), [`k8s/`](k8s), [`services/`](services) (con sus `Dockerfile`), [`scripts/`](scripts) |
 | 5 | Evidencia de despliegue | [docs/evidencias/](docs/evidencias/README.md) |
 | 6 | Pendientes | [docs/pendientes.md](docs/pendientes.md) |
 
-**Cómo correrlo:** sigue [Lab session routine](#lab-session-routine) y [First time on a lab account](#first-time-on-a-lab-account-after-make-bootstrap). Para volver a levantar todo después de un reinicio del lab: `make creds` → `make cluster-up` (~20 min) → `make deploy BACKEND_TAG=<sha> MOCK_TAG=<sha> INJECTOR_TAG=<sha>`. Sin AWS, el backend corre local con `pnpm dev:memory` (ver su README).
+**Diferencias con la estructura sugerida.** El backend corre como contenedor, pero en **EKS** en lugar de una EC2 suelta, y la API entra por un **ALB** en lugar de API Gateway ([DECISIONS D-28](docs/DECISIONS.md#d-28--no-api-gateway), [api.md](docs/api.md#por-qué-alb-y-no-api-gateway)). Los recursos se crean con **Terraform** en lugar de scripts boto3, así que todo se puede volver a crear con un comando. Ninguna llave, contraseña, ARN ni id de cuenta está en el código: las credenciales del lab se cargan con `make creds` y los valores de cada cuenta salen de los outputs de Terraform.
 
-### Notas de planeación
+### Cómo correrlo
 
-Plan y bitácora del M1 y el MVP del Nov 5, para los tres repos: [hub](docs/planning/README.md) · [infra](docs/planning/infra-plan.md) · [backend](docs/planning/back-plan.md) · [frontend](docs/planning/front-plan.md) · [changelog](docs/planning/changelog.md).
+| Situación | Comandos | Tiempo |
+|---|---|---|
+| Cuenta nueva del lab (una vez) | `make creds` → `make bootstrap` → `make foundation-apply` → `make images` | una vez |
+| Cada sesión del lab / después de un reinicio | `make creds` → `make cluster-up` → `make deploy BACKEND_TAG=<sha>` → `make status` | ~20 min |
+| Al terminar | `make cluster-down` (el cluster cuesta ≈ $0.25/h) | ~10 min |
+| Sin AWS | backend: `pnpm dev:memory` en su repo (API + worker + injector simulado) | 1 min |
+
+Los datos (DynamoDB, S3) y las imágenes (ECR) viven en el stack `foundation`, que no se destruye, así que sobreviven a `make cluster-down` y a los reinicios del contenedor. Detalle en [Lab session routine](#lab-session-routine).
+
+### Documentación de planeación
+
+Roadmap por área y bitácora del proyecto: [resumen](docs/planning/README.md) · [infra](docs/planning/infra-plan.md) · [backend](docs/planning/back-plan.md) · [frontend](docs/planning/front-plan.md) · [changelog](docs/planning/changelog.md).
 
 ## Docs
 
@@ -130,7 +147,7 @@ cp terraform/cluster/terraform.tfvars.example terraform/cluster/cluster.auto.tfv
 make images                    # needs Docker; builds linux/amd64 and pushes with the git SHA tag
 ```
 
-## Demo: kill and revive (INF-123)
+## Demo: inject a fault by hand
 
 ```bash
 make cluster-up                # ~20 min; then:

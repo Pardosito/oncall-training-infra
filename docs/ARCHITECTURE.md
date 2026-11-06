@@ -3,6 +3,8 @@
 Living document, and the source of truth for every AWS resource, Kubernetes object and cross-repo contract this repo owns.
 Items marked **(planned)** aren't built yet. Items marked **(cross-repo)** are used by another repo; change them only together with that repo's owner.
 
+**Built and deployed today:** the foundation's S3 files bucket, DynamoDB `Sessions`, both SQS queues and ECR; the whole cluster stack except ElastiCache; the backend, injector and mock system on EKS behind the ALB. The incident loop runs in **direct mode** (§15). **Planned for the final delivery:** Step Functions, ElastiCache, Cognito, CloudFront with the site bucket, Glue/Athena, NetworkPolicies, the kind setup and the GitHub workflows. The diagram in [`solucion.png`](solucion.png) shows the same split.
+
 ## 1. Overview
 
 ```
@@ -54,18 +56,18 @@ Browser ──► CloudFront ──┤ /*      → S3 site (OAC) + CloudFront Fu
 | Resource | Name | Key settings |
 |---|---|---|
 | S3 files bucket | `oncall-training-files-<acct>` | Block public access, SSE-S3, versioning off; lifecycle: `athena-results/` expires after 7 days; prefixes `scenarios/`, `logs/`, `athena-results/` |
-| S3 site bucket | `oncall-training-site-<acct>` | Block public access, SSE-S3; bucket policy allows `s3:GetObject` only from this CloudFront distribution (OAC, `AWS:SourceArn` condition) |
+| S3 site bucket **(planned)** | `oncall-training-site-<acct>` | Block public access, SSE-S3; bucket policy allows `s3:GetObject` only from this CloudFront distribution (OAC, `AWS:SourceArn` condition) |
 | DynamoDB | `Sessions` | On-demand, PITR on; PK `user_id` (S), SK `session_id` (S); GSI `Leaderboard` (PK `scenario_id` S, SK `score` N, projection ALL); deletion protection on |
 | SQS | `oncall-training-faults` + `-faults-dlq` | Standard; visibility 60 s; retention 1 day; `maxReceiveCount = 3`; SSE-SQS |
 | SQS | `oncall-training-user-actions.fifo` + `-user-actions-dlq.fifo` | FIFO, content-based dedup **off** (senders set `MessageDeduplicationId`); visibility 60 s; `maxReceiveCount = 3`; SSE-SQS |
-| Step Functions | `oncall-training-scenario` | Standard; role = LabRole; definition from `statemachines/scenario.asl.json` via `templatefile()`; logging level `ERROR` to log group `/aws/states/oncall-training-scenario` (14-day retention) |
-| Glue | database `oncall_training`, table `session_events` | §10.2 |
-| Athena | workgroup `oncall-training` | Enforced output `s3://…files…/athena-results/`; `bytes_scanned_cutoff_per_query = 100 MB`; engine v3 |
-| Cognito | user pool `oncall-training-users` | Email sign-in, self sign-up on, email verification; managed login domain `oncall-training-<acct>`; app client: public (no secret), auth code + PKCE, scopes `openid email profile`, refresh tokens on, access token 60 min; callback/logout URLs in §12 |
+| Step Functions **(planned)** | `oncall-training-scenario` | Standard; role = LabRole; definition from `statemachines/scenario.asl.json` via `templatefile()`; logging level `ERROR` to log group `/aws/states/oncall-training-scenario` (14-day retention) |
+| Glue **(planned)** | database `oncall_training`, table `session_events` | §10.2 |
+| Athena **(planned)** | workgroup `oncall-training` | Enforced output `s3://…files…/athena-results/`; `bytes_scanned_cutoff_per_query = 100 MB`; engine v3 |
+| Cognito **(planned)** | user pool `oncall-training-users` | Email sign-in, self sign-up on, email verification; managed login domain `oncall-training-<acct>`; app client: public (no secret), auth code + PKCE, scopes `openid email profile`, refresh tokens on, access token 60 min; callback/logout URLs in §12 |
 | ECR | `oncall-training/backend`, `oncall-training/injector`, `oncall-training/mock-system` | Immutable tags, scan on push, lifecycle: keep the last 15 images |
-| CloudFront | distribution + OAC + Function `spa-rewrite` | §11 |
+| CloudFront **(planned)** | distribution + OAC + Function `spa-rewrite` | §11 |
 
-**Outputs** (consumed by the cluster stack, scripts and other repos' CI variables): `sessions_table`, `files_bucket`, `site_bucket`, `faults_queue_url`, `user_actions_queue_url`, `state_machine_arn`, `athena_workgroup`, `glue_database`, `cognito_user_pool_id`, `cognito_client_id`, `cognito_domain`, `cloudfront_domain`, `cloudfront_distribution_id`, `ecr_repository_urls`.
+**Outputs** (consumed by the cluster stack, scripts and other repos' CI variables): `account_id`, `sessions_table`, `files_bucket`, `faults_queue_url`, `faults_dlq_url`, `user_actions_queue_url`, `user_actions_dlq_url`, `ecr_repository_urls`. Planned with their resources: `site_bucket`, `state_machine_arn`, `athena_workgroup`, `glue_database`, `cognito_user_pool_id`, `cognito_client_id`, `cognito_domain`, `cloudfront_domain`, `cloudfront_distribution_id`.
 
 ## 4. Cluster resources (`terraform/cluster`)
 
@@ -77,12 +79,12 @@ Browser ──► CloudFront ──┤ /*      → S3 site (OAC) + CloudFront Fu
 | Node group | `default`: **2× `t3.medium`**, `ON_DEMAND`, AL2023 x86_64, min 2 / desired 2 / max 3, public subnets, role = LabRole; launch template: IMDSv2 required, **`http_put_response_hop_limit = 2`** (so pods can use the node role), 20 GB gp3 |
 | Add-ons | `vpc-cni` with `{"enableNetworkPolicy": "true"}`, `coredns`, `kube-proxy` (versions pinned per EKS version) |
 | AWS Load Balancer Controller | `helm_release` (chart pinned) in `kube-system`; uses the node role (no service account annotation); `clusterName`, `region`, `vpcId` set explicitly |
-| ALB security group | `oncall-training-alb`: inbound 80 **only from the CloudFront origin-facing managed prefix list** (`com.amazonaws.global.cloudfront.origin-facing`); attached through Ingress annotations |
-| ElastiCache | Replication group `oncall-training`, engine **Valkey**, `cache.t3.micro` (or the smallest the lab allows), 1 node, private subnets, `transit_encryption_enabled = true`, no AUTH token; SG allows 6379 only from the EKS cluster/node security group |
+| ALB security group | `oncall-training-alb`, attached through Ingress annotations. Today: inbound 80 only from `var.alb_ingress_cidrs` (the demo machines' IPs, in the gitignored `cluster.auto.tfvars`; `0.0.0.0/0` is rejected). **Planned:** inbound 80 only from the CloudFront origin-facing managed prefix list (`com.amazonaws.global.cloudfront.origin-facing`) |
+| ElastiCache **(planned)** | Replication group `oncall-training`, engine **Valkey**, `cache.t3.micro` (or the smallest the lab allows), 1 node, private subnets, `transit_encryption_enabled = true`, no AUTH token; SG allows 6379 only from the EKS cluster/node security group |
 
-**Outputs:** `cluster_name`, `cluster_endpoint`, `redis_endpoint` (→ `rediss://<host>:6379`, M2), `vpc_id`, `vpc_cidr`, `alb_security_group_id`.
+**Outputs:** `cluster_name`, `cluster_endpoint`, `vpc_id`, `vpc_cidr`, `alb_security_group_id`; `redis_endpoint` (→ `rediss://<host>:6379`) is planned with ElastiCache.
 
-**MVP (until Nov 19):** the ALB security group allows port 80 from `var.alb_ingress_cidrs` (the demo machines, set in the gitignored `cluster.auto.tfvars`; `0.0.0.0/0` is rejected), instead of the CloudFront prefix list (INF-138). No private subnets or ElastiCache yet.
+The private subnets are created together with ElastiCache.
 
 ## 5. Kubernetes layout (`k8s/`)
 
@@ -119,7 +121,7 @@ All Roles live in namespace **`mock`** and are bound to service accounts in othe
 
 AWS access for all pods comes from the node role (LabRole). There are no IAM annotations on service accounts.
 
-### 5.3 NetworkPolicies (enforced by the VPC CNI)
+### 5.3 NetworkPolicies (enforced by the VPC CNI) (planned)
 
 | Namespace | Policy | Allows |
 |---|---|---|
@@ -129,7 +131,7 @@ AWS access for all pods comes from the node role (LabRole). There are no IAM ann
 | `mock` | `allow-intra-mock` | ingress between mock pods on 8080 (gateway → orders → worker-svc) |
 | `injector` | none | no ingress needed |
 
-Egress isn't restricted in the MVP (pods need AWS APIs and Redis). Kubelet probes are allowed by the VPC CNI policy agent. Verify this during the smoke test (O-01).
+Egress isn't restricted (pods need AWS APIs and Redis). Kubelet probes should be allowed by the VPC CNI policy agent; this is verified on EKS before the policies are enabled (DECISIONS O-04). The policies are applied together, or the ALB and the health checks break.
 
 ### 5.4 Configuration
 
@@ -138,9 +140,9 @@ Egress isn't restricted in the MVP (pods need AWS APIs and Redis). Kubelet probe
 - The images run as the `node` user; pods set `runAsUser: 1000` so the kubelet can verify `runAsNonRoot`.
 - Backend variables (names match backend ARCHITECTURE §9): `AWS_REGION`, `SESSIONS_TABLE`, `FILES_BUCKET`, `USER_ACTIONS_QUEUE_URL`, `STATE_MACHINE_ARN`, `ATHENA_WORKGROUP`, `ATHENA_DATABASE`, `REDIS_URL` (`rediss://…`), `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `MOCK_NAMESPACE=mock`, `MOCK_HEALTH_URL_TEMPLATE=http://{service}.mock.svc.cluster.local:8080/health`, `AUTH_MODE=cognito`, `MOCK_CLUSTER=kubernetes`, `STATS_MODE=athena`.
 - Injector variables: `AWS_REGION`, `FAULTS_QUEUE_URL`, `SESSIONS_TABLE`, `REDIS_URL`, `MOCK_NAMESPACE=mock`.
-- No Kubernetes Secrets are needed in the MVP (no passwords; AWS credentials come from the node).
+- No Kubernetes Secrets are needed (no passwords; AWS credentials come from the node).
 
-## 6. Step Functions — `oncall-training-scenario`
+## 6. Step Functions — `oncall-training-scenario` (planned)
 
 ### 6.1 States (Standard workflow, `QueryLanguage: "JSONata"`)
 
@@ -229,7 +231,7 @@ The USER action shape is owned by the backend (backend ARCHITECTURE §8.5).
 - Loop: long-poll `faults` (`WaitTimeSeconds 20`). For each message:
   1. Parse it with zod; invalid messages are logged and left for the DLQ.
   2. Check the target: namespace must equal `MOCK_NAMESPACE`, and the deployment must be one of `gateway|orders|worker-svc`.
-  3. **Check the session** (strongly consistent `GetItem`): apply only if `state = STARTING`. Otherwise (`INCIDENT_ACTIVE` after a restart, `FAILED`/`RESOLVED` because the user abandoned during the warmup, or no item) log, skip and delete the message. In the MVP the api sends `FAULT` with `DelaySeconds = warmupSeconds`, so a late fault for an abandoned session is expected.
+  3. **Check the session** (strongly consistent `GetItem`): apply only if `state = STARTING`. Otherwise (`INCIDENT_ACTIVE` after a restart, `FAILED`/`RESOLVED` because the user abandoned during the warmup, or no item) log, skip and delete the message. In direct mode (§15) the api sends `FAULT` with `DelaySeconds = warmupSeconds`, so a late fault for an abandoned session is expected.
   4. **Apply** the fault (idempotent):
      - `SCALE_TO_ZERO`: patch `deployments/scale` to 0.
      - `DELETE_PODS`: delete the deployment's pods by label selector (the ReplicaSet recreates them, a short outage).
@@ -258,7 +260,7 @@ One image; `ROLE` selects the behavior. The chain is `gateway → orders → wor
 ### 10.1 DynamoDB `Sessions`
 The table is created here; **its item shape is owned by the backend** (backend ARCHITECTURE §7.1). The state machine and the injector write the attributes listed there for them.
 
-### 10.2 Glue table `session_events` (cross-repo with backend ARCHITECTURE §7.4)
+### 10.2 Glue table `session_events` (planned) (cross-repo with backend ARCHITECTURE §7.4)
 - Location: `s3://oncall-training-files-<acct>/logs/`, SerDe `org.openx.data.jsonserde.JsonSerDe`.
 - Columns: `ts string, user_id string, session_id string, scenario_id string, type string, action string, target string, params struct<replicas:int>, valid boolean, score int, ttd_seconds int, ttr_seconds int`.
 - Partitions: `year string, month string, day string` with **partition projection**:
@@ -269,7 +271,7 @@ The table is created here; **its item shape is owned by the backend** (backend A
   - `storage.location.template = s3://…/logs/year=${year}/month=${month}/day=${day}/`
 - No crawler and no `MSCK REPAIR`. The named queries themselves live in the backend repo.
 
-## 11. CloudFront
+## 11. CloudFront (planned)
 
 | Behavior | Origin | Cache policy | Origin request policy | Extras |
 |---|---|---|---|---|
@@ -280,7 +282,7 @@ The table is created here; **its item shape is owned by the backend** (backend A
 - Viewer protocol: redirect HTTP → HTTPS. Price class `PriceClass_100`. Default root object `index.html`. Uses the default `*.cloudfront.net` certificate (no custom domain).
 - Origin updates take a few minutes to deploy after `update-api-origin.sh` runs.
 
-## 12. Cognito
+## 12. Cognito (planned)
 
 - App client URLs (cross-repo with the frontend):
   - callbacks: `https://<cloudfront_domain>/callback`, `http://localhost:5173/callback`
@@ -311,8 +313,8 @@ The table is created here; **its item shape is owned by the backend** (backend A
 3. Print a reminder that foundation stays up.
 
 ### 13.4 Deploying images
-- **Backend:** its release workflow pushes `oncall-training/backend:<sha>`. To roll it out, run `make deploy BACKEND_TAG=<sha>` or the `deploy.yml` workflow with that input. It updates `images.env` (committed, so the running versions are visible in git), re-applies the overlay and waits for `kubectl rollout status`.
-- **Injector / mock system:** `images.yml` builds and pushes on merge to `main` (when lab secrets are fresh); then deploy the same way.
+- **Backend:** its release workflow pushes `oncall-training/backend:<sha>`. To roll it out, run `make deploy BACKEND_TAG=<sha>` (a `deploy.yml` workflow with the same input is planned). It updates `images.env` (committed, so the running versions are visible in git), re-applies the overlay and waits for `kubectl rollout status`.
+- **Injector / mock system:** `make images` builds and pushes them (an `images.yml` workflow that does it on merge to `main` is planned); then deploy the same way.
 - The frontend deploys itself to S3 and CloudFront (frontend ARCHITECTURE §11), using the `site_bucket` and `cloudfront_distribution_id` outputs.
 
 ### 13.5 Approximate cost (us-east-1, on-demand; check current pricing)
@@ -327,7 +329,9 @@ The table is created here; **its item shape is owned by the backend** (backend A
 | **Cluster total** | **≈ $0.25/h (≈ $6/day if left up)** | |
 | CloudFront, S3, DynamoDB on-demand, SQS, Step Functions, Cognito, ECR storage, Athena | cents per day at our usage | foundation |
 
-## 14. Local (kind)
+## 14. Local (kind) (planned)
+
+Until this exists, the backend runs the whole loop locally with `pnpm dev:memory` (in-memory store and a fake injector).
 
 - `make kind-up`:
   1. creates a kind cluster `oncall-training` (optionally with Calico to enforce NetworkPolicies)
@@ -336,19 +340,18 @@ The table is created here; **its item shape is owned by the backend** (backend A
 - The local overlay has no Ingress and uses local images (`imagePullPolicy: Never`). The injector points at the backend's LocalStack (`AWS_ENDPOINT_URL=http://host.docker.internal:4566`, Redis on the host). The backend runs outside kind (`pnpm dev`, `pnpm dev:worker`) with `MOCK_CLUSTER=kubernetes` and the kind kubeconfig.
 - The local state machine: the backend keeps a copy at `local/statemachine.asl.json`. When `statemachines/scenario.asl.json` changes, tell the backend owner (or open a PR there).
 
-## 15. MVP mode (Nov 5 → Nov 19)
+## 15. Current deployment: direct mode
 
-Temporary setup for the first MVP (DECISIONS D-25). The contracts in §6–9 don't change; only who does each step.
+What runs today, until the planned services above are in place (DECISIONS D-25). The contracts in §6–9 don't change; only who does each step.
 
-| Normal | MVP |
+| Final design | Today |
 |---|---|
 | The state machine sends `FAULT` to `faults` after `Warmup` (§6) | The backend api sends the same `FAULT` (§7) to `faults` itself, with `DelaySeconds` for the warmup (backend D-24) |
 | `PersistResolved` / `MarkFailed` write the end state; `SESSION_ENDED` triggers the reset | The backend worker writes `RESOLVED` / `FAILED` and resets the mock system |
 | ElastiCache: lock, dashboard snapshots, event buffer | None. One demo user; the api builds the dashboard on each request |
 | Cognito | `AUTH_MODE=dev` with `ALLOW_DEV_AUTH=true` (backend), `VITE_AUTH_MODE=dev` (frontend) |
-| CloudFront `/api/*` → ALB, ALB open only to CloudFront (INF-059) | The SPA's Vite dev proxy → ALB (`API_PROXY_TARGET`, frontend D-18); the ALB allows only `var.alb_ingress_cidrs` (INF-138) |
+| CloudFront `/api/*` → ALB, ALB open only to CloudFront | The SPA's Vite dev proxy → ALB (`API_PROXY_TARGET`, frontend D-18); the ALB allows only `var.alb_ingress_cidrs` |
 
-- **Config** (INF-139): the backend gets `AUTH_MODE=dev`, `ALLOW_DEV_AUTH=true`, `ORCHESTRATION_MODE=direct` and `FAULTS_QUEUE_URL`, and no `REDIS_URL`, `STATE_MACHINE_ARN` or `COGNITO_*`. The injector runs without `REDIS_URL`.
+- **Config:** the backend gets `AUTH_MODE=dev`, `ALLOW_DEV_AUTH=true`, `ORCHESTRATION_MODE=direct` and `FAULTS_QUEUE_URL`, and no `REDIS_URL`, `STATE_MACHINE_ARN` or `COGNITO_*`. The injector runs without `REDIS_URL`.
 - The api needs `sqs:SendMessage` on `faults`; LabRole allows it.
-- Not deployed in the MVP: Step Functions, ElastiCache, Cognito, CloudFront and the site bucket, NetworkPolicies.
-- Deliverable: INF-140.
+- Not deployed yet: Step Functions, ElastiCache, Cognito, CloudFront and the site bucket, NetworkPolicies.
