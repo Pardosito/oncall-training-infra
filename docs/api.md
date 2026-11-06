@@ -102,7 +102,7 @@ curl -s -X POST "$API/sessions" -H "$U" -H 'Content-Type: application/json' -d '
 
 ### Respuestas reales
 
-Salida de los comandos de arriba contra el ALB `oncall-training-api` en EKS, el 2026-11-06 a las 04:56 UTC (backend `2688b14`). La salida completa está en [`evidencias/curl-pruebas.txt`](evidencias/curl-pruebas.txt) y como imagen en [`curl-pruebas.png`](evidencias/curl-pruebas.png).
+Salida de los comandos de arriba contra el ALB `oncall-training-api` en EKS, el 2026-11-06 a las 04:56 UTC (backend `2688b14`). La salida completa está en [`evidencias/curl-pruebas.txt`](evidencias/curl-pruebas.txt).
 
 | Request | Status | Respuesta |
 |---|---|---|
