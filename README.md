@@ -13,6 +13,40 @@ The app itself lives in [`oncall-training-backend`](https://github.com/Pardosito
 
 > **Status:** M0 (setup) done. M1 code written: foundation and cluster Terraform, injector, mock system, manifests and the cluster lifecycle targets. Not applied yet: foundation, the first cluster apply (spike) and the first image push are next. Then the first MVP, one incident loop on EKS (Thu Nov 5, [DECISIONS D-25](docs/DECISIONS.md)). Run `make help` for the targets that exist today.
 
+## Entrega intermedia · Desarrollo en la Nube (ITESO, Otoño 2026)
+
+**Proyecto:** On-Call Training · **Equipo:** Cafeinomanos
+
+| Integrante | Rol |
+|---|---|
+| Ian Rodríguez | Infraestructura y orquestación (este repo) |
+| Juan Pablo González | Backend y frontend |
+
+### Repositorios
+
+| Repo | Contiene |
+|---|---|
+| [oncall-training-infra](https://github.com/Pardosito/oncall-training-infra) (este) | Terraform, manifiestos de Kubernetes, injector y mock system |
+| [oncall-training-backend](https://github.com/Pardosito/oncall-training-backend) | API + worker (Node/TypeScript), su `Dockerfile`, escenarios y `openapi.json` |
+| [oncall-training-frontend](https://github.com/Pardosito/oncall-training-frontend) | SPA en React que consume la API |
+
+### Entregables
+
+| # | Entregable | Dónde |
+|---|---|---|
+| 1 | Diagrama de la solución | `docs/solucion.png` (pendiente) · versión Mermaid en [docs/planning](docs/planning/README.md#2-the-mvp-in-one-picture) |
+| 2 | Modelo de datos | [docs/modelo-datos.md](docs/modelo-datos.md) |
+| 3 | Diseño de la API | [docs/api.md](docs/api.md) |
+| 4 | Código fuente | Backend + `Dockerfile`: [oncall-training-backend](https://github.com/Pardosito/oncall-training-backend) · infra, servicios y scripts: [`terraform/`](terraform), [`k8s/`](k8s), [`services/`](services), [`scripts/`](scripts) |
+| 5 | Evidencia de despliegue | [docs/evidencias/](docs/evidencias/README.md) |
+| 6 | Pendientes | [docs/pendientes.md](docs/pendientes.md) |
+
+**Cómo correrlo:** sigue [Lab session routine](#lab-session-routine) y [First time on a lab account](#first-time-on-a-lab-account-after-make-bootstrap). Para volver a levantar todo después de un reinicio del lab: `make creds` → `make cluster-up` (~20 min) → `make deploy BACKEND_TAG=<sha> MOCK_TAG=<sha> INJECTOR_TAG=<sha>`. Sin AWS, el backend corre local con `pnpm dev:memory` (ver su README).
+
+### Notas de planeación
+
+Plan y bitácora del M1 y el MVP del Nov 5, para los tres repos: [hub](docs/planning/README.md) · [infra](docs/planning/infra-plan.md) · [backend](docs/planning/back-plan.md) · [frontend](docs/planning/front-plan.md) · [changelog](docs/planning/changelog.md).
+
 ## Docs
 
 | Read | For |
