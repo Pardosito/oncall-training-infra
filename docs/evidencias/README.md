@@ -9,7 +9,7 @@ Entregable 5. Capturas de una corrida completa del caso de uso contra EKS (Learn
 | `docker-logs.png` | Logs de los contenedores durante la demo: la API, el injector aplicando la falla y el gateway con errores | `kubectl -n app logs deploy/backend-api` · `kubectl -n injector logs deploy/injector` · `kubectl -n mock logs deploy/gateway` |
 | `dynamodb-sessions.png` | La tabla `Sessions` con la sesión `RESOLVED` y su puntaje | Consola DynamoDB → Explore items |
 | `ecr-imagenes.png` | Las tres imágenes en ECR, etiquetadas con el git SHA | Consola ECR |
-| `curl-pruebas.png` | Las pruebas de [api.md](../api.md#pruebas-curl) contra el ALB con su respuesta | Terminal |
+| `curl-pruebas.png` · [`curl-pruebas.txt`](curl-pruebas.txt) | Las pruebas de [api.md](../api.md#pruebas-curl) contra el ALB: el caso de uso completo (201 → `INCIDENT_ACTIVE` → 202 → `RESOLVED`, score 982) y cada error (400, 401, 404, 409). El `.png` es la salida del `.txt` en imagen; la respuesta de `/logs` está recortada | Corrida del 2026-11-06 04:56 UTC |
 
 **URL de la API:** `http://<alb-dns>/api`. El DNS cambia en cada `make cluster-up`; se muestra en vivo con `make status`.
 

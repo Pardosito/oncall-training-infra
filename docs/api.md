@@ -102,20 +102,20 @@ curl -s -X POST "$API/sessions" -H "$U" -H 'Content-Type: application/json' -d '
 
 ### Respuestas reales
 
-Salida de los comandos de arriba contra el backend real (commit `bafa7e6` de `oncall-training-backend`) corriendo con `pnpm dev:memory`, el mismo código que corre en EKS con almacenamiento en memoria y el injector simulado. Las capturas de la misma corrida contra el ALB están en [evidencias](evidencias/README.md).
+Salida de los comandos de arriba contra el ALB `oncall-training-api` en EKS, el 2026-11-06 a las 04:56 UTC (backend `2688b14`). La salida completa está en [`evidencias/curl-pruebas.txt`](evidencias/curl-pruebas.txt) y como imagen en [`curl-pruebas.png`](evidencias/curl-pruebas.png).
 
 | Request | Status | Respuesta |
 |---|---|---|
 | `GET /scenarios` | 200 | `[{"id":"orders-down","title":"Orders service is not responding","description":"Checkout requests are failing with 5xx.","maxResolveSeconds":600}]` |
 | `GET /scenarios/orders-down` | 200 | `{"id":"orders-down", …, "warmupSeconds":20, "maxResolveSeconds":600, "targets":["gateway","orders","worker-svc"], "availableActions":["ACKNOWLEDGE","VIEW_LOGS","RESTART_DEPLOYMENT","SCALE_DEPLOYMENT"], "scoring":{"base":1000,"perSecondTTD":1,"perSecondTTR":1,"perWrongAction":25}}` |
-| `POST /sessions` | 201 | `{"sessionId":"01M6QGHEZNKHMHEGJTPVCBM192"}` |
-| `GET /sessions/{id}` (antes de la falla) | 200 | `{"sessionId":"01M6QG…","scenarioId":"orders-down","state":"STARTING","createdAt":"2026-11-06T04:05:47.637Z","wrongActions":0,"actionsCount":0}` |
-| `POST /sessions` (otra vez) | 409 | `{"error":{"code":"SESSION_BUSY","message":"A scenario is already running.","details":{"retryAfterSeconds":729},"requestId":"01M6QGHSS6…"}}` |
-| `GET /sessions/{id}/dashboard` | 200 | `{"state":"INCIDENT_ACTIVE","elapsedSeconds":12,"services":[{"name":"gateway","desiredReplicas":1,"readyReplicas":1,"health":"down",…},{"name":"orders","desiredReplicas":0,"readyReplicas":0,"health":"down","pods":[]},{"name":"worker-svc",…,"health":"healthy"}],"recentEvents":[{"type":"FAULT_INJECTED","summary":"Incident started"},{"type":"SESSION_STARTED",…}],…}` |
-| `POST /sessions/{id}/actions` `ACKNOWLEDGE` | 202 | `{"actionId":"01M6QGJFBP2CKGH4F725KMVA0K"}` |
-| `GET /sessions/{id}/logs?service=gateway` | 200 | `{"service":"gateway","lines":["level=error service=gateway msg=\"upstream unavailable\" status=503"]}` |
-| `POST /sessions/{id}/actions` `SCALE_DEPLOYMENT` orders → 2 | 202 | `{"actionId":"01M6QGJFCJ0RZVJGYY72M44P5N"}` |
-| `GET /sessions/{id}` (después del fix) | 200 | `{"state":"RESOLVED","faultInjectedAt":"…04:06:07.897Z","acknowledgedAt":"…04:06:20.790Z","endedAt":"…04:06:23.900Z","score":971,"ttdSeconds":13,"ttrSeconds":16,"wrongActions":0,"actionsCount":2}` |
+| `POST /sessions` | 201 | `{"sessionId":"01M6QKEAA3HB61CPN555EX9A2X"}` |
+| `GET /sessions/{id}` (antes de la falla) | 200 | `{"sessionId":"01M6QKEAA3…","scenarioId":"orders-down","state":"STARTING","createdAt":"2026-11-06T04:56:30.275Z","wrongActions":0,"actionsCount":0}` |
+| `POST /sessions` (otra vez) | 409 | `{"error":{"code":"SESSION_BUSY","message":"A scenario is already running.","details":{"retryAfterSeconds":740},"requestId":"01M6QKEAP2…"}}` |
+| `GET /sessions/{id}/dashboard` | 200 | `{"state":"INCIDENT_ACTIVE","elapsedSeconds":5,"services":[{"name":"gateway","desiredReplicas":1,"readyReplicas":1,"health":"down","latencyMs":811,"pods":[{"name":"gateway-657ccbcf67-kfrvx",…}]},{"name":"orders","desiredReplicas":0,"readyReplicas":0,"health":"down","pods":[]},{"name":"worker-svc",…,"health":"healthy","latencyMs":13}],"recentEvents":[{"type":"FAULT_INJECTED","summary":"Incident started"},{"type":"SESSION_STARTED",…}],…}` |
+| `POST /sessions/{id}/actions` `ACKNOWLEDGE` | 202 | `{"actionId":"01M6QKF48X7PA6ZDSFJ8KRKBB4"}` |
+| `GET /sessions/{id}/logs?service=gateway` | 200 | `{"service":"gateway","lines":["{\"level\":50,\"role\":\"gateway\",\"reason\":\"ECONNREFUSED orders:8080\",\"msg\":\"GET /orders failed: ECONNREFUSED orders:8080\"}", "{… \"msg\":\"GET /orders failed: timeout after 800ms\"}", …]}` |
+| `POST /sessions/{id}/actions` `SCALE_DEPLOYMENT` orders → 2 | 202 | `{"actionId":"01M6QKF4QC0BPK5ZHA4PM0S1K7"}` |
+| `GET /sessions/{id}` (después del fix) | 200 | `{"state":"RESOLVED","faultInjectedAt":"…04:56:50.374Z","acknowledgedAt":"…04:56:56.862Z","endedAt":"…04:57:02.323Z","score":982,"ttdSeconds":6,"ttrSeconds":12,"wrongActions":0,"actionsCount":2}` |
 
 Errores:
 

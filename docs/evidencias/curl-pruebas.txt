@@ -1,0 +1,71 @@
+# Pruebas de la API contra EKS (ALB oncall-training-api) · 2026-11-06T04:56:29Z
+# API=http://oncall-training-api-1197004083.us-east-1.elb.amazonaws.com/api
+
+$ GET $API/scenarios
+[{"id":"orders-down","title":"Orders service is not responding","description":"Checkout requests are failing with 5xx.","maxResolveSeconds":600}]
+[HTTP 200]
+
+$ GET $API/scenarios/orders-down
+{"id":"orders-down","title":"Orders service is not responding","description":"Checkout requests are failing with 5xx.","warmupSeconds":20,"maxResolveSeconds":600,"targets":["gateway","orders","worker-svc"],"availableActions":["ACKNOWLEDGE","VIEW_LOGS","RESTART_DEPLOYMENT","SCALE_DEPLOYMENT"],"scoring":{"base":1000,"perSecondTTD":1,"perSecondTTR":1,"perWrongAction":25}}
+[HTTP 200]
+
+$ POST $API/sessions {"scenarioId":"orders-down"}
+{"sessionId":"01M6QKEAA3HB61CPN555EX9A2X"}
+[HTTP 201]
+SID=01M6QKEAA3HB61CPN555EX9A2X
+
+$ GET $API/sessions/$SID
+{"sessionId":"01M6QKEAA3HB61CPN555EX9A2X","scenarioId":"orders-down","state":"STARTING","createdAt":"2026-11-06T04:56:30.275Z","wrongActions":0,"actionsCount":0}
+[HTTP 200]
+
+$ POST $API/sessions (otra vez, con una sesión activa)
+{"error":{"code":"SESSION_BUSY","message":"A scenario is already running.","details":{"retryAfterSeconds":740},"requestId":"01M6QKEAP2ZEK8SSAKKNV28WMC"}}
+[HTTP 409]
+
+# esperando el warmup (20 s) hasta la falla
+
+$ GET $API/sessions/$SID/dashboard
+{"sessionId":"01M6QKEAA3HB61CPN555EX9A2X","state":"INCIDENT_ACTIVE","generatedAt":"2026-11-06T04:56:55.865Z","elapsedSeconds":5,"services":[{"name":"gateway","desiredReplicas":1,"readyReplicas":1,"health":"down","latencyMs":811,"pods":[{"name":"gateway-657ccbcf67-kfrvx","phase":"Running","ready":true,"restarts":0,"ageSeconds":1252}]},{"name":"orders","desiredReplicas":0,"readyReplicas":0,"health":"down","pods":[]},{"name":"worker-svc","desiredReplicas":1,"readyReplicas":1,"health":"healthy","latencyMs":13,"pods":[{"name":"worker-svc-d6558b4ff-t579d","phase":"Running","ready":true,"restarts":0,"ageSeconds":1708}]}],"recentEvents":[{"ts":"2026-11-06T04:56:50.374Z","type":"FAULT_INJECTED","summary":"Incident started"},{"ts":"2026-11-06T04:56:30.275Z","type":"SESSION_STARTED","summary":"Session started"}],"availableActions":["ACKNOWLEDGE","VIEW_LOGS","RESTART_DEPLOYMENT","SCALE_DEPLOYMENT"]}
+[HTTP 200]
+
+$ POST $API/sessions/$SID/actions {"type":"ACKNOWLEDGE"}
+{"actionId":"01M6QKF48X7PA6ZDSFJ8KRKBB4"}
+[HTTP 202]
+
+$ GET $API/sessions/$SID/logs?service=gateway
+{"service": "gateway", "lines": ["{\"level\":50,\"time\":1793940952483,\"role\":\"gateway\",\"latencyMs\":1,\"reason\":\"ECONNREFUSED orders:8080\",\"msg\":\"GET /orders failed: ECONNREFUSED orders:8080\"}", "{\"level\":50,\"time\":1793940953785,\"role\":\"gateway\",\"latencyMs\":801,\"reason\":\"timeout after 800ms\",\"msg\":\"GET /orders failed: timeout after 800ms\"}", "{\"level\":30,\"time\":1793940977054,\"role\":\"gateway\",\"latencyMs\":36,\"msg\":\"GET /orders 200\"}", "… 97 líneas más (recortado)"]}
+[HTTP 200]
+
+$ POST $API/sessions/$SID/actions {"type":"SCALE_DEPLOYMENT","target":"orders","params":{"replicas":2}}
+{"actionId":"01M6QKF4QC0BPK5ZHA4PM0S1K7"}
+[HTTP 202]
+
+$ GET $API/sessions/$SID (después del fix)
+{"sessionId":"01M6QKEAA3HB61CPN555EX9A2X","scenarioId":"orders-down","state":"RESOLVED","createdAt":"2026-11-06T04:56:30.275Z","faultInjectedAt":"2026-11-06T04:56:50.374Z","acknowledgedAt":"2026-11-06T04:56:56.862Z","endedAt":"2026-11-06T04:57:02.323Z","score":982,"ttdSeconds":6,"ttrSeconds":12,"wrongActions":0,"actionsCount":2}
+[HTTP 200]
+
+# Errores
+
+$ POST $API/sessions {}
+{"error":{"code":"VALIDATION_ERROR","message":"Request validation failed.","details":{"issues":[{"path":"scenarioId","message":"Invalid input: expected string, received undefined"}]},"requestId":"01M6QKFF8RQV3934JA7VW5PH30"}}
+[HTTP 400]
+
+$ POST $API/sessions {bad
+{"error":{"code":"MALFORMED_JSON","message":"Request body is not valid JSON.","requestId":"01M6QKFFGX83D2C3X2YPXDHSR6"}}
+[HTTP 400]
+
+$ POST $API/sessions {"scenarioId":"nope"}
+{"error":{"code":"NOT_FOUND","message":"Scenario not found.","requestId":"01M6QKFFP8357TE4NDJYRR1D30"}}
+[HTTP 404]
+
+$ GET $API/sessions/01JXXXXXXXXXXXXXXXXXXXXXXX
+{"error":{"code":"NOT_FOUND","message":"Session not found.","requestId":"01M6QKFFW0NT9B74QTHNRV2S08"}}
+[HTTP 404]
+
+$ POST $API/sessions/$SID/actions {"type":"DELETE_EVERYTHING"}
+{"error":{"code":"VALIDATION_ERROR","message":"Request validation failed.","details":{"issues":[{"path":"type","message":"Invalid discriminator value. Expected 'ACKNOWLEDGE' | 'RESTART_DEPLOYMENT' | 'SCALE_DEPLOYMENT'"}]},"requestId":"01M6QKFG1K9NHYT2SQCJ67QNQM"}}
+[HTTP 400]
+
+$ GET $API/scenarios (sin x-dev-user)
+{"error":{"code":"UNAUTHORIZED","message":"Send x-dev-user: <id>[:<username>] (dev auth).","requestId":"01M6QKFG71T1GJQRYHTV2MKKEZ"}}
+[HTTP 401]
