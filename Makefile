@@ -167,6 +167,39 @@ k8s-validate: ## kustomize build + kubeconform for base and overlays
 test: ## Unit tests of the injector and mock system
 	@pnpm test
 
+.PHONY: lint
+lint: lint-tf k8s-validate lint-sh lint-ts ## All checks CI runs (no AWS needed)
+
+.PHONY: lint-tf
+lint-tf: ## terraform fmt + validate per stack, forbidden-resource check, tflint
+	@scripts/lint-tf.sh
+
+.PHONY: lint-sh
+lint-sh: ## shellcheck every script
+	@shellcheck scripts/*.sh
+
+.PHONY: lint-ts
+lint-ts: ## pnpm lint, format check, typecheck and tests
+	@pnpm lint
+	@pnpm format:check
+	@pnpm typecheck
+	@pnpm test
+
+# Pinned so local runs match CI; uses uvx when checkov isn't installed.
+CHECKOV_VERSION := 3.3.28
+
+.PHONY: checkov
+checkov: ## Policy scan of terraform/ and k8s/ (soft-fail: reports, never fails)
+	@if command -v checkov >/dev/null; then c=checkov; else c="uvx checkov==$(CHECKOV_VERSION)"; fi; \
+	$$c -d terraform --framework terraform --skip-path '\.terraform' --compact --quiet --soft-fail; \
+	$$c -d k8s --framework kubernetes --compact --quiet --soft-fail
+
+.PHONY: images-build
+images-build: ## Build the injector and mock-system images locally (linux/amd64, no push)
+	@for svc in mock-system injector; do \
+	  docker buildx build --platform linux/amd64 -f services/$$svc/Dockerfile -t oncall-training/$$svc:local . || exit 1; \
+	done
+
 # ---- Docs --------------------------------------------------------------------
 
 .PHONY: diagram
