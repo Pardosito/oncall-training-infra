@@ -168,11 +168,25 @@ test: ## Unit tests of the injector and mock system
 	@pnpm test
 
 .PHONY: lint
-lint: lint-tf k8s-validate lint-sh lint-ts ## All checks CI runs (no AWS needed)
+lint: lint-tf lint-sfn k8s-validate lint-sh lint-ts ## All checks CI runs (no AWS needed)
 
 .PHONY: lint-tf
 lint-tf: ## terraform fmt + validate per stack, forbidden-resource check, tflint
 	@scripts/lint-tf.sh
+
+.PHONY: lint-sfn
+lint-sfn: ## State machine: renders, every Task has a Catch, every state reaches SESSION_ENDED
+	@scripts/lint-sfn.sh
+
+.PHONY: sfn-test
+sfn-test: check-creds ## TestState checks for every state (mocked; writes nothing)
+	@scripts/sfn-test.sh
+
+.PHONY: sfn-smoke
+sfn-smoke: check-creds ## ⚠ One real execution (SMOKE_PATH=resolve|abandon|timeout); needs injector + worker stopped
+	$(call tf_init,foundation)
+	$(call confirm,This starts an execution and writes a test item and messages (cleaned up after).)
+	@scripts/sfn-smoke.sh
 
 .PHONY: lint-sh
 lint-sh: ## shellcheck every script

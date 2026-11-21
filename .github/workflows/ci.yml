@@ -20,7 +20,7 @@ env:
 
 jobs:
   terraform:
-    name: terraform (fmt, validate, forbidden resources, tflint)
+    name: terraform (fmt, validate, forbidden resources, tflint, state machine)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,6 +37,7 @@ jobs:
         env:
           # tflint --init downloads the AWS ruleset from GitHub releases.
           GITHUB_TOKEN: ${{ github.token }}
+      - run: make lint-sfn
 
   k8s:
     name: k8s (kustomize build + kubeconform)
