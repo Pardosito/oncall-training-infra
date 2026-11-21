@@ -47,7 +47,7 @@ Rules for Terraform, Kubernetes manifests, the state machine, the TypeScript ser
 - Encryption at rest on for S3, DynamoDB and SQS; ElastiCache in-transit encryption on.
 
 ### 1.7 Workflow
-- Before a PR: `terraform fmt -recursive`, `terraform validate`, `tflint`.
+- Before a PR: `terraform fmt -recursive`, then `make lint` (the same checks as `ci.yml`).
 - The PR includes the `terraform plan` summary (adds/changes/destroys) for every stack it touches.
 - `apply`/`destroy` only through `make` targets, which show the plan and ask for confirmation.
 
@@ -116,8 +116,8 @@ The same base rules as the backend repo (see its CONVENTIONS), summarized:
 
 ## 7. Policy checks
 
-- CI greps the Terraform code for the forbidden resource types (§1.4) and fails if it finds any.
-- `checkov` runs soft-fail. Real findings are fixed or suppressed inline with a reason (`#checkov:skip=CKV_…: reason`).
+- `scripts/check-forbidden-resources.sh` greps the Terraform code for the forbidden resource types (§1.4) and fails if it finds any. It runs in `make lint-tf` and `ci.yml`.
+- `checkov` runs soft-fail (`make checkov`). Real findings are fixed or suppressed inline with a reason (`#checkov:skip=CKV_…: reason`).
 
 ## 8. Git and PRs
 
