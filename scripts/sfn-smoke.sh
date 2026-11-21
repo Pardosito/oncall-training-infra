@@ -14,16 +14,22 @@ REGION="us-east-1"
 path="${SMOKE_PATH:-resolve}"
 case "$path" in resolve | abandon | timeout) ;; *) echo "error: SMOKE_PATH must be resolve, abandon or timeout" >&2; exit 1 ;; esac
 
-out="$(terraform -chdir=terraform/foundation output -json)"
-get() { jq -r --arg k "$1" '.[$k].value // empty' <<<"$out"; }
-sm="$(get state_machine_arn)"
-faults="$(get faults_queue_url)"
-actions="$(get user_actions_queue_url)"
-table="$(get sessions_table)"
+# Resource names come from the foundation outputs, or from the env (e.g. LocalStack with
+# AWS_ENDPOINT_URL): STATE_MACHINE_ARN, FAULTS_QUEUE_URL, USER_ACTIONS_QUEUE_URL, SESSIONS_TABLE.
+if [ -n "${STATE_MACHINE_ARN:-}" ]; then
+  sm="$STATE_MACHINE_ARN" faults="$FAULTS_QUEUE_URL" actions="$USER_ACTIONS_QUEUE_URL" table="${SESSIONS_TABLE:-Sessions}"
+else
+  out="$(terraform -chdir=terraform/foundation output -json)"
+  get() { jq -r --arg k "$1" '.[$k].value // empty' <<<"$out"; }
+  sm="$(get state_machine_arn)"
+  faults="$(get faults_queue_url)"
+  actions="$(get user_actions_queue_url)"
+  table="$(get sessions_table)"
+fi
 [ -n "$sm" ] || { echo "error: no state_machine_arn output; run make foundation-apply first" >&2; exit 1; }
 
-# Refuse to race the real consumers when the cluster is reachable.
-for ns_deploy in injector/injector app/worker; do
+# Refuse to race the real consumers when the cluster is reachable (not against LocalStack).
+[ -n "${AWS_ENDPOINT_URL:-}" ] || for ns_deploy in injector/injector app/worker; do
   replicas="$(kubectl --request-timeout=10s -n "${ns_deploy%/*}" get deploy "${ns_deploy#*/}" -o jsonpath='{.spec.replicas}' 2>/dev/null || true)"
   if [ -n "$replicas" ] && [ "$replicas" != "0" ]; then
     echo "error: $ns_deploy is running ($replicas replicas) and would consume the smoke messages." >&2

@@ -192,7 +192,7 @@ Example state (JSONata):
 
 **Errors and retries** (D-29):
 - `InjectFault`, `PersistResolved`, `MarkFailed` and the two notify states retry transient errors (2 s, backoff ×2). A duplicate FAULT or SESSION_ENDED is harmless: the injector is idempotent and the FIFO dedup ids drop repeats.
-- `WaitForFix` has no Retry: `States.TaskFailed` would also match `Abandoned`. A repeated `AWAIT_FIX` within 5 min is dropped by its dedup id anyway.
+- `WaitForFix` has no Retry: `States.TaskFailed` would also match `Abandoned`, and a retried send carries a new task token that the FIFO dedup id would drop, leaving the worker with a dead token.
 - `DynamoDB.ConditionalCheckFailedException` is never retried. In `PersistResolved` it means the session already left `INCIDENT_ACTIVE` → `MarkFailed(ERROR)`; in `MarkFailed` it means the session already ended → still `NotifyEndedFailed`.
 - Both end writes `REMOVE task_token` and set `updated_at`.
 - If `SESSION_ENDED` can't be sent after 5 retries, the execution ends in `NotifyFailed`; the backend's stale-session check is the fallback (backend §11).
@@ -201,7 +201,7 @@ Example state (JSONata):
 **Checks:**
 - `make lint-sfn` (offline, in CI): renders like `templatefile()`, every Task has a Catch, every state can reach a `SESSION_ENDED` sender.
 - `make sfn-test`: TestState with mocked Task results for each state and branch (`statemachines/tests/cases.json`); writes nothing.
-- `make sfn-smoke`: one real execution in the lab, with the script playing the api, injector and worker (`SMOKE_PATH=resolve|abandon|timeout`). Run it with the injector and worker stopped.
+- `make sfn-smoke`: one real execution in the lab, with the script playing the api, injector and worker (`SMOKE_PATH=resolve|abandon|timeout`). Run it with the injector and worker stopped. With `STATE_MACHINE_ARN`, `FAULTS_QUEUE_URL`, `USER_ACTIONS_QUEUE_URL` and `AWS_ENDPOINT_URL` set, `scripts/sfn-smoke.sh` runs against LocalStack instead (needs `SERVICES` with `stepfunctions,sqs,dynamodb,sts,iam`).
 - Every change to the definition is copied to the backend's `local/statemachine.asl.json` (with LocalStack URLs).
 
 ### 6.2 Execution input (backend api → state machine) (cross-repo)
