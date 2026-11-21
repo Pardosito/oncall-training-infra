@@ -20,7 +20,7 @@ env:
 
 jobs:
   terraform:
-    name: terraform (fmt, validate, forbidden resources, tflint, state machine)
+    name: terraform (fmt, validate, forbidden resources, tflint)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,6 +37,12 @@ jobs:
         env:
           # tflint --init downloads the AWS ruleset from GitHub releases.
           GITHUB_TOKEN: ${{ github.token }}
+
+  state-machine:
+    name: state machine (render, catches, SESSION_ENDED reachability)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: make lint-sfn
 
   k8s:

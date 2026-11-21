@@ -57,7 +57,7 @@
     },
     "WaitForFix": {
       "Type": "Task",
-      "Comment": "AWAIT_FIX with the task token (D-13). The worker calls SendTaskSuccess with the §6.3 output, or SendTaskFailure(error = Abandoned). No Retry: States.TaskFailed would also match Abandoned.",
+      "Comment": "AWAIT_FIX with the task token (D-13). The worker calls SendTaskSuccess with the §6.3 output, or SendTaskFailure(error = Abandoned). No Retry: States.TaskFailed would also match Abandoned, and a retried send carries a new token while the FIFO dedup id drops the message, leaving the worker with the old one.",
       "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
       "Arguments": {
         "QueueUrl": "${user_actions_queue_url}",
@@ -117,7 +117,13 @@
         }
       },
       "Retry": [
-        { "ErrorEquals": ["DynamoDB.ConditionalCheckFailedException"], "MaxAttempts": 0 },
+        {
+          "ErrorEquals": [
+            "DynamoDB.ConditionalCheckFailedException",
+            "States.QueryEvaluationError"
+          ],
+          "MaxAttempts": 0
+        },
         {
           "ErrorEquals": ["States.ALL"],
           "IntervalSeconds": 2,
