@@ -4,6 +4,8 @@
 #   - Pod Identity associations
 #   - aws_s3_bucket: use awscc_s3_bucket (D-24); aws_s3_bucket_policy and friends are fine
 # Data sources (data "aws_iam_role" "lab") are allowed.
+# Only greps our own .tf files: a registry module could still declare IAM resources, so the
+# stacks use plain resources and local modules only (D-03).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
