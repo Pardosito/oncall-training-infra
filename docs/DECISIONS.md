@@ -42,6 +42,7 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-26 | 2026-11-01 | EKS access: one explicit access entry for the lab role; no automatic creator entry | Decided |
 | D-27 | 2026-11-01 | Image tags and account-specific values reach the aws overlay through Kustomize replacements | Decided |
 | D-28 | 2026-11-05 | No API Gateway: CloudFront is the edge, the ALB routes to the pods | Decided |
+| D-29 | 2026-11-21 | State machine error handling: retry only idempotent sends and writes, never `WaitForFix` or a failed condition; every path still sends `SESSION_ENDED` | Decided |
 
 ---
 
@@ -161,6 +162,12 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 **Why:** an ALB and API Gateway overlap only at the edges (TLS, path routing, basic auth). The ALB is a load balancer: it routes to the pods, health-checks them and integrates with Kubernetes through the Ingress. API Gateway is an API management product: API keys, usage plans, per-client throttling, request validation, authorizers. Our requirements (one SPA client, one backend, the API on the same domain as the SPA, HTTPS, the ALB reachable only from CloudFront) are covered by CloudFront (edge, HTTPS, one domain, no CORS), the ALB (routing, health checks) and the backend (Cognito token validation).
 **Not interchangeable:** API Gateway can't reach pods inside the VPC by itself; it needs a VPC Link to a load balancer. On EKS it would sit in front of the ALB, not replace it, adding a hop (CloudFront → API Gateway → VPC Link → ALB → pod), per-request cost, a 29 s default integration timeout on REST APIs, and a second place for routing rules.
 **When to revisit:** several API consumers (partners, mobile apps) needing keys, quotas or usage tracking; a monetized or rate-limited public API; Lambda backends; one facade with uniform policies over many services. On Kubernetes, also weigh an in-cluster gateway (Envoy Gateway, Kong, the Gateway API).
+
+### D-29 · State machine error handling
+**Decision:** transient errors are retried on the steps where a repeat is harmless: `InjectFault` (the injector is idempotent), the two end writes (conditional) and the two `SESSION_ENDED` sends (FIFO dedup). `WaitForFix` isn't retried, because `States.TaskFailed` also matches the worker's `Abandoned` error, and because a retried send carries a new task token while the FIFO dedup id (`<sessionId>:await-fix`) drops the second message, so the worker would keep a dead token and the session would time out; a lost `AWAIT_FIX` fails the session with `ERROR` instead, visibly. A missing score field in the task output (`States.QueryEvaluationError`) isn't retried either. And a failed DynamoDB condition is never retried, because it means another writer already moved the session. Every Task has a Catch, and `MarkFailed` continues to `NotifyEndedFailed` even when its write fails, so `SESSION_ENDED` goes out on every path except a send that fails 5 times (`NotifyFailed`). Execution logging is `ERROR` level without execution data, because the inputs carry the task token.
+**Abandon during the warmup** is handled without `StopExecution` (which would skip `SESSION_ENDED`): the backend marks the session failed, and the worker answers the later `AWAIT_FIX` with `SendTaskFailure(Abandoned)` (ARCHITECTURE §6.1).
+**Alternatives:** a Retry on `WaitForFix` limited to SQS error names (fragile; the error names aren't documented per integration); `StopExecution` for abandon (no `SESSION_ENDED`).
+
 ---
 
 ## 3. Current limitations
@@ -207,6 +214,6 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 |---|---|---|---|
 | O-01 | **Learner Lab smoke test.** Verified: EKS with LabRole as cluster and node role (D-26), LB controller on the node role. Still to check: the smallest allowed ElastiCache node type; Cognito managed login domain; CloudFront Functions; Step Functions logging with LabRole; VPC CNI network policy agent permissions | Ian | Everything in `cluster` |
 | O-02 | The success criterion says the **injector** "kills and revives" a service. Today the user's fix and the backend worker's reset revive it. If the injector itself must revive it, add a `RESTORE_BASELINE` fault type sent by the state machine at the end (instead of the worker reset) | Ian | State machine end path |
-| O-03 | Does JSONata's `TimeoutSeconds` expression and `sqs:sendMessage.waitForTaskToken` with FIFO arguments (`MessageGroupId`, `MessageDeduplicationId`) work as written? Verify with TestState | Ian | `WaitForFix` |
+| O-03 | Does JSONata's `TimeoutSeconds` expression and `sqs:sendMessage.waitForTaskToken` with FIFO arguments (`MessageGroupId`, `MessageDeduplicationId`) work as written? Works in LocalStack 4.4: `make sfn-smoke`'s resolve, abandon and timeout paths pass there (2026-11-21). Still to confirm in the lab with `make sfn-test` and `make sfn-smoke` | Ian | `WaitForFix` |
 | O-04 | Do the VPC CNI network policies allow kubelet probes and ALB IP-target traffic as expected (§5.3)? | Ian | NetworkPolicies |
 | O-05 | Does LocalStack's Step Functions support `sqs:sendMessage.waitForTaskToken`, for the backend's local loop? | JP | Backend local full loop (backend O-02) |

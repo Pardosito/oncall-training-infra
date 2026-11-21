@@ -1,0 +1,245 @@
+{
+  "comment": "TestState cases for scenario.asl.json (make sfn-test). Task states are mocked, so nothing is sent to SQS or written to DynamoDB. `variables` are the variables in scope before the state runs; `expect` fields are matched as subsets (jq contains).",
+  "variables": {
+    "userId": "u-test",
+    "sessionId": "s-test",
+    "scenarioId": "orders-down",
+    "warmupSeconds": 20,
+    "maxResolveSeconds": 600,
+    "fault": {
+      "faultId": "f-test",
+      "type": "SCALE_TO_ZERO",
+      "target": { "namespace": "mock", "deployment": "orders" }
+    },
+    "reason": null,
+    "error": null
+  },
+  "context": { "Task": { "Token": "token-test" } },
+  "cases": [
+    {
+      "name": "Init assigns the execution input to variables",
+      "state": "Init",
+      "input": {
+        "userId": "u-test",
+        "sessionId": "s-test",
+        "scenarioId": "orders-down",
+        "warmupSeconds": 20,
+        "maxResolveSeconds": 600,
+        "fault": {
+          "faultId": "f-test",
+          "type": "SCALE_TO_ZERO",
+          "target": { "namespace": "mock", "deployment": "orders" }
+        }
+      },
+      "noVariables": true,
+      "expect": {
+        "status": "SUCCEEDED",
+        "nextState": "Warmup",
+        "variables": {
+          "sessionId": "s-test",
+          "warmupSeconds": 20,
+          "fault": { "faultId": "f-test" }
+        }
+      }
+    },
+    {
+      "name": "Warmup goes on to InjectFault",
+      "state": "Warmup",
+      "expect": { "status": "SUCCEEDED", "nextState": "InjectFault" }
+    },
+    {
+      "name": "InjectFault sends the FAULT message",
+      "state": "InjectFault",
+      "mock": { "result": { "MessageId": "m-1", "MD5OfMessageBody": "x" } },
+      "expect": {
+        "status": "SUCCEEDED",
+        "nextState": "WaitForFix",
+        "arguments": {
+          "QueueUrl": "https://sqs.us-east-1.amazonaws.com/000000000000/oncall-training-faults",
+          "MessageBody": {
+            "faultId": "f-test",
+            "sessionId": "s-test",
+            "userId": "u-test",
+            "type": "SCALE_TO_ZERO",
+            "target": { "namespace": "mock", "deployment": "orders" }
+          }
+        }
+      }
+    },
+    {
+      "name": "InjectFault: SQS error after retries → MarkFailed (ERROR)",
+      "state": "InjectFault",
+      "mock": { "errorOutput": { "error": "SQS.SqsException", "cause": "test" } },
+      "retrierRetryCount": 3,
+      "expect": {
+        "status": "CAUGHT_ERROR",
+        "nextState": "MarkFailed",
+        "variables": { "reason": "ERROR" }
+      }
+    },
+    {
+      "name": "WaitForFix sends AWAIT_FIX with the task token, then PersistResolved",
+      "state": "WaitForFix",
+      "mock": {
+        "result": {
+          "resolvedAt": "2026-11-21T10:00:00Z",
+          "ttdSeconds": 42,
+          "ttrSeconds": 131,
+          "wrongActions": 1,
+          "actionsCount": 4,
+          "score": 802
+        }
+      },
+      "expect": {
+        "status": "SUCCEEDED",
+        "nextState": "PersistResolved",
+        "variables": { "result": { "score": 802 } },
+        "arguments": {
+          "MessageGroupId": "s-test",
+          "MessageDeduplicationId": "s-test:await-fix",
+          "MessageBody": {
+            "kind": "SYSTEM",
+            "type": "AWAIT_FIX",
+            "sessionId": "s-test",
+            "taskToken": "token-test"
+          }
+        }
+      }
+    },
+    {
+      "name": "WaitForFix: timeout → MarkFailed (TIMEOUT)",
+      "state": "WaitForFix",
+      "mock": { "errorOutput": { "error": "States.Timeout", "cause": "test" } },
+      "expect": {
+        "status": "CAUGHT_ERROR",
+        "nextState": "MarkFailed",
+        "variables": { "reason": "TIMEOUT" }
+      }
+    },
+    {
+      "name": "WaitForFix: SendTaskFailure(Abandoned) → MarkFailed (ABANDONED)",
+      "state": "WaitForFix",
+      "mock": { "errorOutput": { "error": "Abandoned", "cause": "user abandoned" } },
+      "expect": {
+        "status": "CAUGHT_ERROR",
+        "nextState": "MarkFailed",
+        "variables": { "reason": "ABANDONED" }
+      }
+    },
+    {
+      "name": "WaitForFix: any other error → MarkFailed (ERROR)",
+      "state": "WaitForFix",
+      "mock": { "errorOutput": { "error": "SQS.SqsException", "cause": "test" } },
+      "expect": {
+        "status": "CAUGHT_ERROR",
+        "nextState": "MarkFailed",
+        "variables": { "reason": "ERROR" }
+      }
+    },
+    {
+      "name": "PersistResolved writes RESOLVED and the score fields",
+      "state": "PersistResolved",
+      "extraVariables": {
+        "result": {
+          "resolvedAt": "2026-11-21T10:00:00Z",
+          "ttdSeconds": 42,
+          "ttrSeconds": 131,
+          "score": 802
+        }
+      },
+      "mock": { "result": {} },
+      "expect": {
+        "status": "SUCCEEDED",
+        "nextState": "NotifyEnded",
+        "arguments": {
+          "TableName": "Sessions",
+          "Key": { "user_id": { "S": "u-test" }, "session_id": { "S": "s-test" } },
+          "ConditionExpression": "#state = :active",
+          "ExpressionAttributeValues": {
+            ":resolved": { "S": "RESOLVED" },
+            ":score": { "N": "802" },
+            ":ttd": { "N": "42" },
+            ":ttr": { "N": "131" },
+            ":ended": { "S": "2026-11-21T10:00:00Z" }
+          }
+        }
+      }
+    },
+    {
+      "name": "PersistResolved: session no longer INCIDENT_ACTIVE → MarkFailed (ERROR), no retry",
+      "state": "PersistResolved",
+      "extraVariables": { "result": { "ttdSeconds": 1, "ttrSeconds": 2, "score": 3 } },
+      "mock": {
+        "errorOutput": { "error": "DynamoDB.ConditionalCheckFailedException", "cause": "test" }
+      },
+      "expect": {
+        "status": "CAUGHT_ERROR",
+        "nextState": "MarkFailed",
+        "variables": { "reason": "ERROR" }
+      }
+    },
+    {
+      "name": "NotifyEnded sends SESSION_ENDED (RESOLVED)",
+      "state": "NotifyEnded",
+      "mock": { "result": { "MessageId": "m-2", "MD5OfMessageBody": "x" } },
+      "expect": {
+        "status": "SUCCEEDED",
+        "nextState": "Resolved",
+        "arguments": {
+          "QueueUrl": "https://sqs.us-east-1.amazonaws.com/000000000000/oncall-training-user-actions.fifo",
+          "MessageGroupId": "s-test",
+          "MessageDeduplicationId": "s-test:ended",
+          "MessageBody": { "type": "SESSION_ENDED", "outcome": "RESOLVED" }
+        }
+      }
+    },
+    {
+      "name": "MarkFailed writes FAILED with the reason",
+      "state": "MarkFailed",
+      "extraVariables": { "reason": "TIMEOUT" },
+      "mock": { "result": {} },
+      "expect": {
+        "status": "SUCCEEDED",
+        "nextState": "NotifyEndedFailed",
+        "arguments": {
+          "ConditionExpression": "#state IN (:starting, :active)",
+          "ExpressionAttributeValues": {
+            ":failed": { "S": "FAILED" },
+            ":reason": { "S": "TIMEOUT" }
+          }
+        }
+      }
+    },
+    {
+      "name": "MarkFailed: session already ended → still NotifyEndedFailed",
+      "state": "MarkFailed",
+      "extraVariables": { "reason": "ABANDONED" },
+      "mock": {
+        "errorOutput": { "error": "DynamoDB.ConditionalCheckFailedException", "cause": "test" }
+      },
+      "expect": { "status": "CAUGHT_ERROR", "nextState": "NotifyEndedFailed" }
+    },
+    {
+      "name": "NotifyEndedFailed sends SESSION_ENDED (FAILED + reason)",
+      "state": "NotifyEndedFailed",
+      "extraVariables": { "reason": "TIMEOUT" },
+      "mock": { "result": { "MessageId": "m-3", "MD5OfMessageBody": "x" } },
+      "expect": {
+        "status": "SUCCEEDED",
+        "nextState": "Failed",
+        "arguments": {
+          "MessageDeduplicationId": "s-test:ended",
+          "MessageBody": { "type": "SESSION_ENDED", "outcome": "FAILED", "reason": "TIMEOUT" }
+        }
+      }
+    },
+    {
+      "name": "NotifyEndedFailed: SQS down after retries → NotifyFailed",
+      "state": "NotifyEndedFailed",
+      "extraVariables": { "reason": "TIMEOUT" },
+      "mock": { "errorOutput": { "error": "SQS.SqsException", "cause": "test" } },
+      "retrierRetryCount": 5,
+      "expect": { "status": "CAUGHT_ERROR", "nextState": "NotifyFailed" }
+    }
+  ]
+}
