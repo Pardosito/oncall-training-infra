@@ -40,3 +40,8 @@ output "ecr_repository_urls" {
   description = "ECR repository URL per image: backend, injector, mock-system."
   value       = { for k, r in aws_ecr_repository.this : k => r.repository_url }
 }
+
+output "state_machine_arn" {
+  description = "Scenario state machine ARN (backend STATE_MACHINE_ARN, used when ORCHESTRATION_MODE=stepfunctions)."
+  value       = aws_sfn_state_machine.scenario.arn
+}
