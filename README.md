@@ -83,7 +83,7 @@ Roadmap por área y bitácora del proyecto: [resumen](docs/planning/README.md) �
 
 ## Tooling
 
-All CLI versions are pinned in [`mise.toml`](mise.toml): terraform, tflint, kubectl, kustomize, kubeconform, kind, helm, node 22, pnpm, shellcheck, awscli v2 and pre-commit.
+All CLI versions are pinned in [`mise.toml`](mise.toml): terraform, tflint, kubectl, kustomize, kubeconform, kind, helm, node 22, pnpm, shellcheck, awscli v2, pre-commit and uv (for checkov). `make lint` runs every CI check locally; `make checkov` runs the policy scan.
 
 ```bash
 brew install mise                 # or: curl https://mise.run | sh
