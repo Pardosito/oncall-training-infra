@@ -60,14 +60,14 @@ Browser ──► CloudFront ──┤ /*      → S3 site (OAC) + CloudFront Fu
 | DynamoDB | `Sessions` | On-demand, PITR on; PK `user_id` (S), SK `session_id` (S); GSI `Leaderboard` (PK `scenario_id` S, SK `score` N, projection ALL); deletion protection on |
 | SQS | `oncall-training-faults` + `-faults-dlq` | Standard; visibility 60 s; retention 1 day; `maxReceiveCount = 3`; SSE-SQS |
 | SQS | `oncall-training-user-actions.fifo` + `-user-actions-dlq.fifo` | FIFO, content-based dedup **off** (senders set `MessageDeduplicationId`); visibility 60 s; `maxReceiveCount = 3`; SSE-SQS |
-| Step Functions **(planned)** | `oncall-training-scenario` | Standard; role = LabRole; definition from `statemachines/scenario.asl.json` via `templatefile()`; logging level `ERROR` to log group `/aws/states/oncall-training-scenario` (14-day retention) |
+| Step Functions | `oncall-training-scenario` | Standard; role = LabRole; definition from `statemachines/scenario.asl.json` via `templatefile()`; logging level `ERROR` without execution data (it carries the task token) to log group `/aws/states/oncall-training-scenario` (14-day retention). Built; sessions still run in direct mode until the backend handles `AWAIT_FIX` (§15) |
 | Glue **(planned)** | database `oncall_training`, table `session_events` | §10.2 |
 | Athena **(planned)** | workgroup `oncall-training` | Enforced output `s3://…files…/athena-results/`; `bytes_scanned_cutoff_per_query = 100 MB`; engine v3 |
 | Cognito **(planned)** | user pool `oncall-training-users` | Email sign-in, self sign-up on, email verification; managed login domain `oncall-training-<acct>`; app client: public (no secret), auth code + PKCE, scopes `openid email profile`, refresh tokens on, access token 60 min; callback/logout URLs in §12 |
 | ECR | `oncall-training/backend`, `oncall-training/injector`, `oncall-training/mock-system` | Immutable tags, scan on push, lifecycle: keep the last 15 images |
 | CloudFront **(planned)** | distribution + OAC + Function `spa-rewrite` | §11 |
 
-**Outputs** (consumed by the cluster stack, scripts and other repos' CI variables): `account_id`, `sessions_table`, `files_bucket`, `faults_queue_url`, `faults_dlq_url`, `user_actions_queue_url`, `user_actions_dlq_url`, `ecr_repository_urls`. Planned with their resources: `site_bucket`, `state_machine_arn`, `athena_workgroup`, `glue_database`, `cognito_user_pool_id`, `cognito_client_id`, `cognito_domain`, `cloudfront_domain`, `cloudfront_distribution_id`.
+**Outputs** (consumed by the cluster stack, scripts and other repos' CI variables): `account_id`, `sessions_table`, `files_bucket`, `faults_queue_url`, `faults_dlq_url`, `user_actions_queue_url`, `user_actions_dlq_url`, `ecr_repository_urls`, `state_machine_arn`. Planned with their resources: `site_bucket`, `athena_workgroup`, `glue_database`, `cognito_user_pool_id`, `cognito_client_id`, `cognito_domain`, `cloudfront_domain`, `cloudfront_distribution_id`.
 
 ## 4. Cluster resources (`terraform/cluster`)
 
@@ -142,7 +142,7 @@ Egress isn't restricted (pods need AWS APIs and Redis). Kubelet probes should be
 - Injector variables: `AWS_REGION`, `FAULTS_QUEUE_URL`, `SESSIONS_TABLE`, `REDIS_URL`, `MOCK_NAMESPACE=mock`.
 - No Kubernetes Secrets are needed (no passwords; AWS credentials come from the node).
 
-## 6. Step Functions — `oncall-training-scenario` (planned)
+## 6. Step Functions — `oncall-training-scenario`
 
 ### 6.1 States (Standard workflow, `QueryLanguage: "JSONata"`)
 
@@ -189,6 +189,20 @@ Example state (JSONata):
 }
 ```
 `${…}` placeholders are filled by Terraform `templatefile()`; `{% … %}` is JSONata evaluated at run time.
+
+**Errors and retries** (D-29):
+- `InjectFault`, `PersistResolved`, `MarkFailed` and the two notify states retry transient errors (2 s, backoff ×2). A duplicate FAULT or SESSION_ENDED is harmless: the injector is idempotent and the FIFO dedup ids drop repeats.
+- `WaitForFix` has no Retry: `States.TaskFailed` would also match `Abandoned`. A repeated `AWAIT_FIX` within 5 min is dropped by its dedup id anyway.
+- `DynamoDB.ConditionalCheckFailedException` is never retried. In `PersistResolved` it means the session already left `INCIDENT_ACTIVE` → `MarkFailed(ERROR)`; in `MarkFailed` it means the session already ended → still `NotifyEndedFailed`.
+- Both end writes `REMOVE task_token` and set `updated_at`.
+- If `SESSION_ENDED` can't be sent after 5 retries, the execution ends in `NotifyFailed`; the backend's stale-session check is the fallback (backend §11).
+- **Abandon during the warmup** (no task token yet): the backend marks the session `FAILED(ABANDONED)` itself. The execution continues: the injector skips the FAULT (session not `STARTING`), and when `AWAIT_FIX` arrives for an ended session the worker answers `SendTaskFailure(error = "Abandoned")` right away. `MarkFailed`'s condition fails and `NotifyEndedFailed` still sends `SESSION_ENDED`. No `StopExecution`, which would skip `SESSION_ENDED`.
+
+**Checks:**
+- `make lint-sfn` (offline, in CI): renders like `templatefile()`, every Task has a Catch, every state can reach a `SESSION_ENDED` sender.
+- `make sfn-test`: TestState with mocked Task results for each state and branch (`statemachines/tests/cases.json`); writes nothing.
+- `make sfn-smoke`: one real execution in the lab, with the script playing the api, injector and worker (`SMOKE_PATH=resolve|abandon|timeout`). Run it with the injector and worker stopped.
+- Every change to the definition is copied to the backend's `local/statemachine.asl.json` (with LocalStack URLs).
 
 ### 6.2 Execution input (backend api → state machine) (cross-repo)
 ```json
@@ -354,4 +368,5 @@ What runs today, until the planned services above are in place (DECISIONS D-25).
 
 - **Config:** the backend gets `AUTH_MODE=dev`, `ALLOW_DEV_AUTH=true`, `ORCHESTRATION_MODE=direct` and `FAULTS_QUEUE_URL`, and no `REDIS_URL`, `STATE_MACHINE_ARN` or `COGNITO_*`. The injector runs without `REDIS_URL`.
 - The api needs `sqs:SendMessage` on `faults`; LabRole allows it.
-- Not deployed yet: Step Functions, ElastiCache, Cognito, CloudFront and the site bucket, NetworkPolicies.
+- Step Functions is deployed but not used yet: `render-config` writes `STATE_MACHINE_ARN`, and `ORCHESTRATION_MODE=stepfunctions make render-config` switches the backend once it handles `AWAIT_FIX`.
+- Not deployed yet: ElastiCache, Cognito, CloudFront and the site bucket, NetworkPolicies.
