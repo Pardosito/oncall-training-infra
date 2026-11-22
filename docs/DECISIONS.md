@@ -43,6 +43,7 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-27 | 2026-11-01 | Image tags and account-specific values reach the aws overlay through Kustomize replacements | Decided |
 | D-28 | 2026-11-05 | No API Gateway: CloudFront is the edge, the ALB routes to the pods | Decided |
 | D-29 | 2026-11-21 | State machine error handling: retry only idempotent sends and writes, never `WaitForFix` or a failed condition; every path still sends `SESSION_ENDED` | Decided |
+| D-30 | 2026-11-21 | kind: the backend runs on the host, the injector reaches LocalStack through `host.docker.internal`; Calico uses pod range `10.244.0.0/16` | Decided |
 
 ---
 
@@ -168,6 +169,10 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 **Abandon during the warmup** is handled without `StopExecution` (which would skip `SESSION_ENDED`): the backend marks the session failed, and the worker answers the later `AWAIT_FIX` with `SendTaskFailure(Abandoned)` (ARCHITECTURE §6.1).
 **Alternatives:** a Retry on `WaitForFix` limited to SQS error names (fragile; the error names aren't documented per integration); `StopExecution` for abandon (no `SESSION_ENDED`).
 
+### D-30 · Local kind setup
+**Decision:** kind runs only the mock system and the injector (`k8s/overlays/local` drops the backend Deployments and Service; its namespace, service accounts and RoleBindings stay, so RBAC matches EKS). The backend runs on the host with its docker-compose (LocalStack, Redis); the injector reaches them at `host.docker.internal`, with LocalStack's dummy credentials committed in `k8s/overlays/local/config.env`. Images are built for the host's platform and loaded with `kind load` (`imagePullPolicy: Never`). With `CALICO=1` the pod range is `10.244.0.0/16`, not Calico's default `192.168.0.0/16`: Docker Desktop puts the host at `192.168.65.254`, and Calico would route it as pod traffic, so the injector couldn't reach LocalStack. Every kubectl call in the scripts names the kind context, so they can't touch EKS.
+**Alternatives:** the backend in kind too (another image build per change, and it would need the kubeconfig of the cluster it runs in anyway); LocalStack in kind (duplicates the backend's compose).
+
 ---
 
 ## 3. Current limitations
@@ -184,7 +189,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 | L-08 | State bucket and shared environment exist only in Ian's lab account | JP can't apply to the shared environment | JP can stand up a personal copy with the same code in his lab |
 | L-09 | No custom domain or certificate | `*.cloudfront.net` URL | Fine for the course |
 | L-10 | No metrics or alerting stack | Debugging relies on `kubectl logs` and CloudWatch (Step Functions) | `make status`; JSON logs |
-| L-11 | kind doesn't enforce NetworkPolicies by default | Local behavior can differ from EKS | Optional Calico in `make kind-up`; policies tested on EKS |
+| L-11 | kind doesn't enforce NetworkPolicies by default | Local behavior can differ from EKS | `make kind-up CALICO=1` enforces them locally (D-30); policies still verified on EKS |
 | L-12 | The lab's SCP denies `s3:GetBucketObjectLockConfiguration` | `aws_s3_bucket` can't be used; buckets need a second provider (`awscc`) | D-24; CI rejects `aws_s3_bucket` (CONV §1.4) |
 | L-13 | Direct mode (D-25): dev auth, no global lock, ALB reachable over plain HTTP from the demo IPs | Anyone on a listed IP can act as any user; two sessions at once would conflict | ALB limited to the demo machines' IPs; one demo user; replaced by Cognito, ElastiCache and CloudFront for the final delivery |
 

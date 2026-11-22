@@ -157,6 +157,20 @@ images: check-creds ## Build + push injector and mock-system to ECR (linux/amd64
 	$(call tf_init,foundation)
 	@scripts/images.sh
 
+# ---- Local (kind, ARCHITECTURE §14) ------------------------------------------
+
+.PHONY: kind-up
+kind-up: ## kind cluster with the mock system + injector (CALICO=1 enforces NetworkPolicies)
+	@CALICO=$(CALICO) scripts/kind-up.sh
+
+.PHONY: kind-down
+kind-down: ## Delete the kind cluster
+	@kind delete cluster --name $(CLUSTER_NAME)
+
+.PHONY: local-smoke
+local-smoke: ## On kind: FAULT via LocalStack → orders down, gateway 503 → revive (needs backend compose)
+	@scripts/local-smoke.sh
+
 # ---- Checks (no AWS) ---------------------------------------------------------
 
 .PHONY: k8s-validate
