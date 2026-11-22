@@ -14,4 +14,4 @@ resources:
   - mock
   - injector
   - app
-  # networkpolicies: M2 (INF-075..078), applied together or the ALB and probes break.
+  # networkpolicies: included by the overlays (see networkpolicies/kustomization.yaml).

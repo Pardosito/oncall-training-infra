@@ -8,6 +8,7 @@ kind: Kustomization
 resources:
   - ../../base
   - ingress-backend-api.yaml
+  # NetworkPolicies: add `- ../../base/networkpolicies` once INF-067 passes on EKS (O-04).
 
 configMapGenerator:
   - name: oncall-config

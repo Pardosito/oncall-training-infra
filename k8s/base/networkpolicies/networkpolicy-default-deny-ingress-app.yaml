@@ -1,0 +1,11 @@
+# ARCHITECTURE §5.3: no ingress to any pod in `app` unless another policy allows it.
+# Egress stays open (AWS APIs, Redis, the Kubernetes API). Kubelet probes come from the node
+# and aren't blocked by Calico or (per O-04, verified in INF-067) the VPC CNI policy agent.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: app
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]

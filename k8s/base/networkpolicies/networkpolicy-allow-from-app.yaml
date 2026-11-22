@@ -1,0 +1,18 @@
+# ARCHITECTURE §5.3: the backend (api and worker in `app`) checks each mock service's /health
+# on 8080. The injector only talks to the Kubernetes API, so it gets no access here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-app
+  namespace: mock
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: app
+      ports:
+        - protocol: TCP
+          port: 8080
