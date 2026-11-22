@@ -167,6 +167,10 @@ kind-up: ## kind cluster with the mock system + injector (CALICO=1 enforces Netw
 kind-down: ## Delete the kind cluster
 	@kind delete cluster --name $(CLUSTER_NAME)
 
+.PHONY: netpol-test
+netpol-test: ## On kind with CALICO=1: allowed paths open, denied paths blocked, probes still pass
+	@scripts/netpol-test.sh
+
 .PHONY: local-smoke
 local-smoke: ## On kind: FAULT via LocalStack → orders down, gateway 503 → revive (needs backend compose)
 	@scripts/local-smoke.sh

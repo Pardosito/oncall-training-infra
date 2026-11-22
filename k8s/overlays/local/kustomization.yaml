@@ -6,6 +6,8 @@ kind: Kustomization
 
 resources:
   - ../../base
+  # Enforced only with `make kind-up CALICO=1`; kind's default CNI ignores them.
+  - ../../base/networkpolicies
 
 images:
   - name: registry.invalid/oncall-training/mock-system

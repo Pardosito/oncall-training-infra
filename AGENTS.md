@@ -81,6 +81,7 @@ make cluster-down          # ⚠ delete Ingress (removes ALB) → wait → terra
 make images                # build + push injector and mock-system images (git SHA tag)
 make kind-up / kind-down   # local cluster with mock system + injector (CALICO=1 enforces NetworkPolicies)
 make local-smoke           # on kind: FAULT via LocalStack → system down → revive
+make netpol-test           # on kind with CALICO=1: NetworkPolicies allow and deny as designed
 make lint                  # fmt, validate, tflint, kubeconform, pnpm lint/test
 ```
 

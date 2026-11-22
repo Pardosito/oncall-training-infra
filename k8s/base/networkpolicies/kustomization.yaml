@@ -1,0 +1,19 @@
+# ARCHITECTURE §5.3. Not in k8s/base/kustomization.yaml on purpose: the overlays include this
+# directory themselves. local does (Calico enforces it on `make kind-up CALICO=1`); aws adds it
+# once INF-067 confirms on EKS that kubelet probes and ALB health checks still pass (O-04).
+# All policies go in together, or the ALB and the health checks break.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: oncall-training
+    includeSelectors: false
+
+resources:
+  - networkpolicy-default-deny-ingress-app.yaml
+  - networkpolicy-default-deny-ingress-injector.yaml
+  - networkpolicy-default-deny-ingress-mock.yaml
+  - networkpolicy-allow-alb-to-api.yaml
+  - networkpolicy-allow-intra-mock.yaml
+  - networkpolicy-allow-from-app.yaml

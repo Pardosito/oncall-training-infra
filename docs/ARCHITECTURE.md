@@ -3,7 +3,7 @@
 Living document, and the source of truth for every AWS resource, Kubernetes object and cross-repo contract this repo owns.
 Items marked **(planned)** aren't built yet. Items marked **(cross-repo)** are used by another repo; change them only together with that repo's owner.
 
-**Built and deployed today:** the foundation's S3 files bucket, DynamoDB `Sessions`, both SQS queues and ECR; the whole cluster stack except ElastiCache; the backend, injector and mock system on EKS behind the ALB. The incident loop runs in **direct mode** (§15). **Planned for the final delivery:** Step Functions, ElastiCache, Cognito, CloudFront with the site bucket, Glue/Athena, NetworkPolicies and the GitHub workflows. The kind setup (§14) runs the mock system and the injector locally. The diagram in [`solucion.png`](solucion.png) shows the same split.
+**Built and deployed today:** the foundation's S3 files bucket, DynamoDB `Sessions`, both SQS queues and ECR; the whole cluster stack except ElastiCache; the backend, injector and mock system on EKS behind the ALB. The incident loop runs in **direct mode** (§15). **Planned for the final delivery:** Step Functions, ElastiCache, Cognito, CloudFront with the site bucket, Glue/Athena, NetworkPolicies on EKS (enforced on kind already, §5.3) and the GitHub workflows. The kind setup (§14) runs the mock system and the injector locally. The diagram in [`solucion.png`](solucion.png) shows the same split.
 
 ## 1. Overview
 
@@ -121,17 +121,21 @@ All Roles live in namespace **`mock`** and are bound to service accounts in othe
 
 AWS access for all pods comes from the node role (LabRole). There are no IAM annotations on service accounts.
 
-### 5.3 NetworkPolicies (enforced by the VPC CNI) (planned)
+### 5.3 NetworkPolicies (enforced by the VPC CNI)
+
+Files in `k8s/base/networkpolicies/`, one per policy.
 
 | Namespace | Policy | Allows |
 |---|---|---|
 | all three | `default-deny-ingress` | nothing (ingress) |
-| `app` | `allow-alb-to-api` | ingress to `backend-api:3000` from the VPC CIDR (ALB IP targets) |
+| `app` | `allow-alb-to-api` | ingress to `backend-api:3000` from the VPC CIDR `10.20.0.0/16` (ALB IP targets) |
 | `mock` | `allow-from-app` | ingress to all mock pods on 8080 from namespace `app` (health checks) |
 | `mock` | `allow-intra-mock` | ingress between mock pods on 8080 (gateway → orders → worker-svc) |
 | `injector` | none | no ingress needed |
 
-Egress isn't restricted (pods need AWS APIs and Redis). Kubelet probes should be allowed by the VPC CNI policy agent; this is verified on EKS before the policies are enabled (DECISIONS O-04). The policies are applied together, or the ALB and the health checks break.
+Egress isn't restricted (pods need AWS APIs, Redis and the Kubernetes API). The injector gets no access to the mock pods: it only uses the Kubernetes API.
+
+**Rollout:** the directory isn't part of `k8s/base/kustomization.yaml`; each overlay includes it. The local overlay does already, and `make netpol-test` checks it on kind with Calico (§14). The aws overlay adds it once INF-067 shows on EKS that kubelet probes and ALB health checks still pass with the VPC CNI policy agent (DECISIONS O-04). The policies go in together, or the ALB and the health checks break.
 
 ### 5.4 Configuration
 
@@ -354,6 +358,7 @@ Runs the mock system and the injector in kind; the backend runs on the host (DEC
   3. applies `k8s/overlays/local` and waits for the rollouts (restarting them first on a reused cluster, since the tag doesn't change)
 - **`k8s/overlays/local`:** the base minus the backend Deployments and Service, local images with `imagePullPolicy: Never`, no Ingress, and ConfigMap `oncall-config` in `injector` from the committed `config.env`: `AWS_ENDPOINT_URL=http://host.docker.internal:4566`, LocalStack's dummy keys, `FAULTS_QUEUE_URL=…/000000000000/faults`, `REDIS_URL=redis://host.docker.internal:6379`.
 - `make local-smoke` (`scripts/local-smoke.sh`): puts a `STARTING` session in LocalStack, sends a `SCALE_TO_ZERO orders` FAULT to `faults`, then checks that the injector scales `orders` to 0 and marks the session `INCIDENT_ACTIVE`, that gateway `/health` returns 503, and, after scaling `orders` back to 2, 200. The status is read from inside the gateway pod (the API server's service proxy hides it). It cleans up the item and the replicas on exit.
+- `make netpol-test` (`scripts/netpol-test.sh`, needs `CALICO=1`): starts throwaway probe pods in `app` and `default`, then checks that app → mock and mock → mock answer on 8080, that injector → mock, default → mock and anything → injector time out, and that every pod is still Ready with no restarts (kubelet probes pass). Without the policies, the four denied paths open, so the test can't pass by accident.
 - `make kind-down` deletes the cluster.
 - The backend on the host talks to kind with `MOCK_CLUSTER=kubernetes` and the kind kubeconfig. The mock services' health URLs (`*.mock.svc.cluster.local`) aren't reachable from the host, so the backend needs a port-forward or its own local override for them.
 - The local state machine: the backend keeps a copy at `local/statemachine.asl.json`. When `statemachines/scenario.asl.json` changes, tell the backend owner (or open a PR there).
