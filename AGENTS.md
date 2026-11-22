@@ -79,7 +79,8 @@ make deploy BACKEND_TAG=<sha> [INJECTOR_TAG=<sha>] [MOCK_TAG=<sha>]   # roll out
 make status                # nodes, pods per namespace, ALB DNS, cost reminder
 make cluster-down          # ⚠ delete Ingress (removes ALB) → wait → terraform destroy cluster
 make images                # build + push injector and mock-system images (git SHA tag)
-make kind-up / kind-down   # local cluster with mock system + injector
+make kind-up / kind-down   # local cluster with mock system + injector (CALICO=1 enforces NetworkPolicies)
+make local-smoke           # on kind: FAULT via LocalStack → system down → revive
 make lint                  # fmt, validate, tflint, kubeconform, pnpm lint/test
 ```
 
@@ -104,7 +105,7 @@ oncall-training-infra/
 ├── services/
 │   ├── injector/            TypeScript: consumes `faults`, breaks the mock system
 │   └── mock-system/         TypeScript: one image, ROLE = gateway | orders | worker-svc
-├── scripts/                 lab-creds.sh · render-config.sh · update-api-origin.sh · kind-up.sh
+├── scripts/                 lab-creds.sh · render-config.sh · update-api-origin.sh · kind-up.sh · local-smoke.sh
 └── .github/workflows/       ci.yml · images.yml · cluster.yml · deploy.yml
 ```
 

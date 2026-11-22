@@ -3,7 +3,7 @@
 Living document, and the source of truth for every AWS resource, Kubernetes object and cross-repo contract this repo owns.
 Items marked **(planned)** aren't built yet. Items marked **(cross-repo)** are used by another repo; change them only together with that repo's owner.
 
-**Built and deployed today:** the foundation's S3 files bucket, DynamoDB `Sessions`, both SQS queues and ECR; the whole cluster stack except ElastiCache; the backend, injector and mock system on EKS behind the ALB. The incident loop runs in **direct mode** (§15). **Planned for the final delivery:** Step Functions, ElastiCache, Cognito, CloudFront with the site bucket, Glue/Athena, NetworkPolicies, the kind setup and the GitHub workflows. The diagram in [`solucion.png`](solucion.png) shows the same split.
+**Built and deployed today:** the foundation's S3 files bucket, DynamoDB `Sessions`, both SQS queues and ECR; the whole cluster stack except ElastiCache; the backend, injector and mock system on EKS behind the ALB. The incident loop runs in **direct mode** (§15). **Planned for the final delivery:** Step Functions, ElastiCache, Cognito, CloudFront with the site bucket, Glue/Athena, NetworkPolicies and the GitHub workflows. The kind setup (§14) runs the mock system and the injector locally. The diagram in [`solucion.png`](solucion.png) shows the same split.
 
 ## 1. Overview
 
@@ -343,15 +343,19 @@ The table is created here; **its item shape is owned by the backend** (backend A
 | **Cluster total** | **≈ $0.25/h (≈ $6/day if left up)** | |
 | CloudFront, S3, DynamoDB on-demand, SQS, Step Functions, Cognito, ECR storage, Athena | cents per day at our usage | foundation |
 
-## 14. Local (kind) (planned)
+## 14. Local (kind)
 
-Until this exists, the backend runs the whole loop locally with `pnpm dev:memory` (in-memory store and a fake injector).
+Runs the mock system and the injector in kind; the backend runs on the host (DECISIONS D-30). Without kind, the backend still runs the whole loop with `pnpm dev:memory` (in-memory store and a fake injector).
 
-- `make kind-up`:
-  1. creates a kind cluster `oncall-training` (optionally with Calico to enforce NetworkPolicies)
-  2. builds the injector and mock-system images and runs `kind load docker-image`
-  3. applies `k8s/overlays/local`
-- The local overlay has no Ingress and uses local images (`imagePullPolicy: Never`). The injector points at the backend's LocalStack (`AWS_ENDPOINT_URL=http://host.docker.internal:4566`, Redis on the host). The backend runs outside kind (`pnpm dev`, `pnpm dev:worker`) with `MOCK_CLUSTER=kubernetes` and the kind kubeconfig.
+- **Prerequisite:** the backend's docker-compose (`docker compose up -d localstack redis` in `oncall-training-backend`), which creates `faults`, `user-actions.fifo` and `Sessions` in LocalStack.
+- `make kind-up [CALICO=1]` (`scripts/kind-up.sh`, about 2.5 min, 4 with Calico):
+  1. creates kind cluster `oncall-training` (context `kind-oncall-training`), or reuses it. `CALICO=1` disables kind's CNI and installs Calico v3.31.2 with pod range `10.244.0.0/16`, so NetworkPolicies are enforced
+  2. builds `oncall-training/{mock-system,injector}:local` for the host's platform and runs `kind load docker-image`
+  3. applies `k8s/overlays/local` and waits for the rollouts (restarting them first on a reused cluster, since the tag doesn't change)
+- **`k8s/overlays/local`:** the base minus the backend Deployments and Service, local images with `imagePullPolicy: Never`, no Ingress, and ConfigMap `oncall-config` in `injector` from the committed `config.env`: `AWS_ENDPOINT_URL=http://host.docker.internal:4566`, LocalStack's dummy keys, `FAULTS_QUEUE_URL=…/000000000000/faults`, `REDIS_URL=redis://host.docker.internal:6379`.
+- `make local-smoke` (`scripts/local-smoke.sh`): puts a `STARTING` session in LocalStack, sends a `SCALE_TO_ZERO orders` FAULT to `faults`, then checks that the injector scales `orders` to 0 and marks the session `INCIDENT_ACTIVE`, that gateway `/health` returns 503, and, after scaling `orders` back to 2, 200. The status is read from inside the gateway pod (the API server's service proxy hides it). It cleans up the item and the replicas on exit.
+- `make kind-down` deletes the cluster.
+- The backend on the host talks to kind with `MOCK_CLUSTER=kubernetes` and the kind kubeconfig. The mock services' health URLs (`*.mock.svc.cluster.local`) aren't reachable from the host, so the backend needs a port-forward or its own local override for them.
 - The local state machine: the backend keeps a copy at `local/statemachine.asl.json`. When `statemachines/scenario.asl.json` changes, tell the backend owner (or open a PR there).
 
 ## 15. Current deployment: direct mode

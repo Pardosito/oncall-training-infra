@@ -1,0 +1,46 @@
+# kind overlay (ARCHITECTURE §14): the mock system and the injector run in kind, the backend runs
+# on the host (`pnpm dev` in the backend repo) and LocalStack + Redis come from its docker-compose.
+# Images are built and loaded by `make kind-up`; nothing is pulled from a registry.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+images:
+  - name: registry.invalid/oncall-training/mock-system
+    newName: oncall-training/mock-system
+    newTag: local
+  - name: registry.invalid/oncall-training/injector
+    newName: oncall-training/injector
+    newTag: local
+
+configMapGenerator:
+  - name: oncall-config
+    namespace: injector
+    envs: [config.env]
+
+patches:
+  # The backend runs on the host, so its Deployments and Service are dropped (its namespace,
+  # service accounts and RoleBindings stay, so RBAC looks the same as on EKS).
+  - patch: |
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: { name: backend-api, namespace: app }
+  - patch: |
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: { name: backend-worker, namespace: app }
+  - patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata: { name: backend-api, namespace: app }
+  # Images come from `kind load docker-image`, never from a registry.
+  - target: { kind: Deployment }
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
