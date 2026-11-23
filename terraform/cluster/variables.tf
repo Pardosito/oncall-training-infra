@@ -57,3 +57,25 @@ variable "alb_ingress_cidrs" {
     error_message = "The ALB must not be open to 0.0.0.0/0 (CONVENTIONS §1.6)."
   }
 }
+
+variable "cache_node_type" {
+  type        = string
+  description = "ElastiCache node type. The smallest the lab allows (INF-066); cache.t3.micro is in the lab's allowed list."
+  default     = "cache.t3.micro"
+
+  validation {
+    condition     = can(regex("^cache\\.t(3|4g)\\.(micro|small)$", var.cache_node_type))
+    error_message = "cache_node_type must be cache.t3/t4g micro or small (cost; the lab allows small node types only)."
+  }
+}
+
+variable "valkey_version" {
+  type        = string
+  description = "Valkey engine version (major.minor); AWS uses the default parameter group for it."
+  default     = "8.0"
+
+  validation {
+    condition     = can(regex("^[78]\\.[0-9]+$", var.valkey_version))
+    error_message = "valkey_version must look like 7.2 or 8.0."
+  }
+}

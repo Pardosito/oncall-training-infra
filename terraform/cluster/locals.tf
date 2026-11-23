@@ -21,6 +21,11 @@ locals {
     "us-east-1a" = "10.20.0.0/20"
     "us-east-1b" = "10.20.16.0/20"
   }
+  # ElastiCache only (INF-053); no internet route.
+  private_subnets = {
+    "us-east-1a" = "10.20.128.0/24"
+    "us-east-1b" = "10.20.129.0/24"
+  }
 
   tags = {
     Project   = local.name

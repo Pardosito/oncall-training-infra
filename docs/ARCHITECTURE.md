@@ -80,11 +80,11 @@ Browser ──► CloudFront ──┤ /*      → S3 site (OAC) + CloudFront Fu
 | Add-ons | `vpc-cni` with `{"enableNetworkPolicy": "true"}`, `coredns`, `kube-proxy` (versions pinned per EKS version) |
 | AWS Load Balancer Controller | `helm_release` (chart pinned) in `kube-system`; uses the node role (no service account annotation); `clusterName`, `region`, `vpcId` set explicitly |
 | ALB security group | `oncall-training-alb`, attached through Ingress annotations. Today: inbound 80 only from `var.alb_ingress_cidrs` (the demo machines' IPs, in the gitignored `cluster.auto.tfvars`; `0.0.0.0/0` is rejected). **Planned:** inbound 80 only from the CloudFront origin-facing managed prefix list (`com.amazonaws.global.cloudfront.origin-facing`) |
-| ElastiCache **(planned)** | Replication group `oncall-training`, engine **Valkey**, `cache.t3.micro` (or the smallest the lab allows), 1 node, private subnets, `transit_encryption_enabled = true`, no AUTH token; SG allows 6379 only from the EKS cluster/node security group |
+| ElastiCache | Replication group `oncall-training`, engine **Valkey** (`valkey_version`, default 8.0), `cache_node_type` (default `cache.t3.micro`; INF-066 confirms the smallest the lab allows), 1 node, private subnets, TLS in transit and at rest, no AUTH token; SG `oncall-training-redis` allows 6379 only from the EKS cluster security group (the nodes and therefore every pod) |
 
-**Outputs:** `cluster_name`, `cluster_endpoint`, `vpc_id`, `vpc_cidr`, `alb_security_group_id`; `redis_endpoint` (→ `rediss://<host>:6379`) is planned with ElastiCache.
+**Outputs:** `cluster_name`, `cluster_endpoint`, `vpc_id`, `vpc_cidr`, `alb_security_group_id`, `redis_endpoint` (`rediss://<host>:6379`; `render-config.sh` writes it as `REDIS_URL`).
 
-The private subnets are created together with ElastiCache.
+The private subnets (`10.20.128.0/24`, `10.20.129.0/24`) hold only ElastiCache; their route table has no internet route.
 
 ## 5. Kubernetes layout (`k8s/`)
 
@@ -375,7 +375,7 @@ What runs today, until the planned services above are in place (DECISIONS D-25).
 | Cognito | `AUTH_MODE=dev` with `ALLOW_DEV_AUTH=true` (backend), `VITE_AUTH_MODE=dev` (frontend) |
 | CloudFront `/api/*` → ALB, ALB open only to CloudFront | The SPA's Vite dev proxy → ALB (`API_PROXY_TARGET`, frontend D-18); the ALB allows only `var.alb_ingress_cidrs` |
 
-- **Config:** the backend gets `AUTH_MODE=dev`, `ALLOW_DEV_AUTH=true`, `ORCHESTRATION_MODE=direct` and `FAULTS_QUEUE_URL`, and no `REDIS_URL`, `STATE_MACHINE_ARN` or `COGNITO_*`. The injector runs without `REDIS_URL`.
+- **Config:** the backend gets `AUTH_MODE=dev`, `ALLOW_DEV_AUTH=true`, `ORCHESTRATION_MODE=direct` and `FAULTS_QUEUE_URL`, and no `STATE_MACHINE_ARN` or `COGNITO_*`. `REDIS_URL` (backend and injector) appears once the cluster stack with ElastiCache is applied: `render-config.sh` writes it from `redis_endpoint`, and both services then switch to the Redis lock, event log and snapshots.
 - The api needs `sqs:SendMessage` on `faults`; LabRole allows it.
 - Step Functions is deployed but not used yet: `render-config` writes `STATE_MACHINE_ARN`, and `ORCHESTRATION_MODE=stepfunctions make render-config` switches the backend once it handles `AWAIT_FIX`.
 - Not deployed yet: ElastiCache, Cognito, CloudFront and the site bucket, NetworkPolicies.
