@@ -24,3 +24,8 @@ output "alb_security_group_id" {
   description = "Security group for the backend-api ALB (Ingress annotation)."
   value       = aws_security_group.alb.id
 }
+
+output "redis_endpoint" {
+  description = "REDIS_URL for the backend and the injector: TLS (rediss://), no AUTH token (D-09)."
+  value       = "rediss://${aws_elasticache_replication_group.this.primary_endpoint_address}:6379"
+}
