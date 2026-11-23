@@ -1,6 +1,6 @@
 import { pino } from "pino";
 import type { MockCluster } from "./cluster.js";
-import type { RecordOutcome, SessionRecorder } from "./recorder.js";
+import type { SessionRecorder } from "./recorder.js";
 
 export const silentLogger = pino({ level: "silent" });
 
@@ -18,7 +18,7 @@ export function faultBody(overrides: Record<string, unknown> = {}): string {
 /** Records every call in one shared list, so tests can assert the order. */
 export function fakes(
   options: {
-    recordOutcome?: RecordOutcome;
+    recordOutcome?: "recorded" | "already-recorded";
     applyError?: Error;
     /** `null` = no session item. Default STARTING. */
     state?: string | null;
@@ -43,7 +43,11 @@ export function fakes(
     },
     recordFaultInjected(fault) {
       calls.push(`record:${fault.sessionId}`);
-      return Promise.resolve(options.recordOutcome ?? "recorded");
+      return Promise.resolve(
+        options.recordOutcome === "already-recorded"
+          ? { outcome: "already-recorded" as const }
+          : { outcome: "recorded" as const, scenarioId: "orders-down" },
+      );
     },
   };
   return { calls, cluster, recorder };

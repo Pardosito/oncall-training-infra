@@ -21,10 +21,12 @@ const docWith = (impl: () => Promise<unknown>) => {
 
 describe("session recorder", () => {
   it("moves STARTING → INCIDENT_ACTIVE with a conditional update", async () => {
-    const { doc, send } = docWith(() => Promise.resolve({}));
+    const { doc, send } = docWith(() =>
+      Promise.resolve({ Attributes: { scenario_id: "orders-down" } }),
+    );
     const outcome = await createSessionRecorder("Sessions", doc).recordFaultInjected(fault, at);
 
-    expect(outcome).toBe("recorded");
+    expect(outcome).toEqual({ outcome: "recorded", scenarioId: "orders-down" });
     const command = (send.mock.calls[0] as unknown[])[0] as UpdateCommand;
     expect(command).toBeInstanceOf(UpdateCommand);
     expect(command.input).toMatchObject({
@@ -37,6 +39,7 @@ describe("session recorder", () => {
         ":starting": "STARTING",
         ":now": "2026-11-05T12:00:00.000Z",
       },
+      ReturnValues: "ALL_NEW",
     });
     expect(command.input.UpdateExpression).toContain("fault_injected_at = :now");
     expect(command.input.UpdateExpression).toContain("updated_at = :now");
@@ -65,7 +68,7 @@ describe("session recorder", () => {
     );
     await expect(
       createSessionRecorder("Sessions", doc).recordFaultInjected(fault, at),
-    ).resolves.toBe("already-recorded");
+    ).resolves.toEqual({ outcome: "already-recorded" });
   });
 
   it("rethrows other errors so the message is retried", async () => {

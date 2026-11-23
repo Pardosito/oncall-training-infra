@@ -253,7 +253,7 @@ The USER action shape is owned by the backend (backend ARCHITECTURE §8.5).
   4. **Apply** the fault (idempotent):
      - `SCALE_TO_ZERO`: patch `deployments/scale` to 0.
      - `DELETE_PODS`: delete the deployment's pods by label selector (the ReplicaSet recreates them, a short outage).
-  5. **Record** (cross-repo, backend D-12): conditional `UpdateItem` on `Sessions` (`state = STARTING` → `INCIDENT_ACTIVE`, `fault_injected_at`, `updated_at`). `ConditionalCheckFailed` means it was already applied; that's fine. Then `RPUSH session:{id}:events` a `FAULT_INJECTED` event in the backend's event-line format, and refresh the key's TTL.
+  5. **Record** (cross-repo, backend D-12): conditional `UpdateItem` on `Sessions` (`state = STARTING` → `INCIDENT_ACTIVE`, `fault_injected_at`, `updated_at`). `ConditionalCheckFailed` means it was already applied; that's fine. Then, only when that update succeeded (a redelivery adds no second line) and `REDIS_URL` is set, `RPUSH session:{id}:events` a `FAULT_INJECTED` event in the backend's event-line format (`scenario_id` from the update's `ReturnValues: ALL_NEW`, `target` = the deployment) and `EXPIRE` it to 2 h, in one MULTI. Best effort: a Redis error is logged and the fault still counts, because the event log is only analytics.
   6. Delete the message.
 - Order matters: apply first, then record, so TTD/TTR never start before the fault exists.
 - `SIGTERM`: stop polling, finish in-flight work, exit.
