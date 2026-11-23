@@ -1,6 +1,7 @@
 import type { Logger } from "pino";
 import type { MockCluster } from "./cluster.js";
 import { parseFault, type Fault } from "./fault.js";
+import type { EventSink } from "./events.js";
 import type { SessionRecorder } from "./recorder.js";
 
 // One FAULT message (ARCHITECTURE §8): parse → check session → apply → record → (caller deletes).
@@ -19,6 +20,8 @@ export interface HandlerDeps {
   recorder: SessionRecorder;
   mockNamespace: string;
   logger: Logger;
+  /** FAULT_INJECTED in Redis, when REDIS_URL is set. Best effort: never fails the fault. */
+  events?: EventSink;
   now?: () => Date;
   /** faultIds already handled by this process; SQS is at-least-once. */
   seen?: Set<string>;
@@ -55,9 +58,11 @@ export function createHandler(deps: HandlerDeps) {
 
     await apply(deps.cluster, fault, log);
 
-    const outcome = await deps.recorder.recordFaultInjected(fault, now());
-    if (outcome === "recorded") {
+    const at = now();
+    const recorded = await deps.recorder.recordFaultInjected(fault, at);
+    if (recorded.outcome === "recorded") {
       log.info("session is INCIDENT_ACTIVE");
+      await recordEvent(deps, fault, recorded.scenarioId, at, log);
     } else {
       // The session left STARTING between the check and the apply (e.g. abandoned). The mock
       // system stays broken until the worker's baseline reset for that session.
@@ -68,6 +73,27 @@ export function createHandler(deps: HandlerDeps) {
     trimSeen(seen);
     return { kind: "done", fault };
   };
+}
+
+// Only after the session moved to INCIDENT_ACTIVE, so a redelivery (already-recorded) never adds
+// a second line. The event log is analytics: a Redis error is logged and the fault still counts.
+async function recordEvent(
+  deps: HandlerDeps,
+  fault: Fault,
+  scenarioId: string | undefined,
+  at: Date,
+  log: Logger,
+): Promise<void> {
+  if (!deps.events) return;
+  if (!scenarioId) {
+    log.warn("session item has no scenario_id; FAULT_INJECTED not recorded");
+    return;
+  }
+  try {
+    await deps.events.faultInjected(fault, scenarioId, at);
+  } catch (err) {
+    log.warn({ err }, "could not record FAULT_INJECTED");
+  }
 }
 
 async function apply(cluster: MockCluster, fault: Fault, log: Logger): Promise<void> {

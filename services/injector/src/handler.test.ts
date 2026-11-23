@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createHandler } from "./handler.js";
 import { fakes, faultBody, silentLogger } from "./fakes.test-helpers.js";
 
@@ -83,5 +83,55 @@ describe("fault handler", () => {
     const result = await make(f)(faultBody({ target: { namespace: "app", deployment: "orders" } }));
     expect(result.kind).toBe("invalid");
     expect(f.calls).toEqual([]);
+  });
+
+  describe("FAULT_INJECTED event", () => {
+    const at = new Date("2026-11-19T18:00:20.000Z");
+    const withEvents = (
+      f: ReturnType<typeof fakes>,
+      faultInjected = vi.fn(() => Promise.resolve()),
+    ) => ({
+      handle: createHandler({
+        ...f,
+        mockNamespace: "mock",
+        logger: silentLogger,
+        now: () => at,
+        events: {
+          faultInjected: (...args: Parameters<typeof faultInjected>) => {
+            f.calls.push("event:s-1");
+            return faultInjected(...args);
+          },
+        },
+      }),
+      faultInjected,
+    });
+
+    it("is recorded after the session moved to INCIDENT_ACTIVE, with its scenario", async () => {
+      const f = fakes();
+      const { handle, faultInjected } = withEvents(f);
+      await handle(faultBody());
+      expect(f.calls).toEqual(["getState:s-1", "scaleToZero:orders", "record:s-1", "event:s-1"]);
+      expect(faultInjected).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: "s-1" }),
+        "orders-down",
+        at,
+      );
+    });
+
+    it("isn't recorded when the session had already left STARTING", async () => {
+      const f = fakes({ recordOutcome: "already-recorded" });
+      const { handle, faultInjected } = withEvents(f);
+      await handle(faultBody());
+      expect(faultInjected).not.toHaveBeenCalled();
+    });
+
+    it("a Redis error doesn't fail the fault", async () => {
+      const f = fakes();
+      const { handle } = withEvents(
+        f,
+        vi.fn(() => Promise.reject(new Error("redis down"))),
+      );
+      expect((await handle(faultBody())).kind).toBe("done");
+    });
   });
 });
