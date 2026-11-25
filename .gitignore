@@ -13,3 +13,6 @@ coverage/
 k8s/overlays/aws/cluster.env
 .cache/
 terraform/bootstrap/archive/
+
+# Cognito invite lists (make users): names and emails, never committed
+users*.txt

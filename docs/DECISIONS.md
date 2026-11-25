@@ -45,6 +45,7 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-29 | 2026-11-21 | State machine error handling: retry only idempotent sends and writes, never `WaitForFix` or a failed condition; every path still sends `SESSION_ENDED` | Decided |
 | D-30 | 2026-11-21 | kind: the backend runs on the host, the injector reaches LocalStack through `host.docker.internal`; Calico uses pod range `10.244.0.0/16` | Decided |
 | D-31 | 2026-11-25 | No CloudFront: SPA on the S3 website endpoint, Cognito callbacks through HTTPS bounce pages on the same bucket, API on the ALB with CORS | Decided (replaces D-07/D-08 for the final delivery) |
+| D-32 | 2026-11-25 | ALB open to `0.0.0.0/0` on port 80; Cognito accounts created by admins only (`make users`), no self sign-up | Decided |
 
 ---
 
@@ -178,8 +179,13 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 ### D-31 · S3 website instead of CloudFront
 **Why:** the team can't use CloudFront in the Learner Lab. The SPA is served by S3 static website hosting (`site` bucket, public read through a bucket policy, `index.html` as index and error document so deep links load the SPA).
 **Cognito:** callback and sign-out URLs must be HTTPS (or localhost), but the website endpoint is HTTP. So the app client registers two tiny pages on the bucket's **HTTPS REST endpoint** (`https://<bucket>.s3.us-east-1.amazonaws.com/auth/callback.html` and `/auth/signed-out.html`); they forward the code and state unchanged to the SPA on the website endpoint. Browsers don't expose Web Crypto on plain HTTP, so the SPA turns PKCE off there (frontend D-25).
-**API:** the SPA calls the ALB directly; the backend allows the website origin with `CORS_ORIGINS` (backend D-35), rendered by `render-config.sh` from the `site_url` output. The ALB stays limited to `alb_ingress_cidrs`.
+**API:** the SPA calls the ALB directly; the backend allows the website origin with `CORS_ORIGINS` (backend D-35), rendered by `render-config.sh` from the `site_url` output. The ALB is open by default (D-32).
 **Trade-off:** no HTTPS for the app or the API, and no PKCE: an authorization code or token on the network could be read. Acceptable for a lab demo; CloudFront + ACM (F-03) removes it.
+
+### D-32 · Open ALB, admin-created accounts
+**Why:** with no CloudFront (D-31) the browser calls the ALB directly, so an IP allowlist meant a `cluster` apply for every new user and network. The allowlist added little: every API route except `/health` already rejects requests without a valid Cognito access token.
+**How:** `alb_ingress_cidrs` defaults to `["0.0.0.0/0"]` (it can still be narrowed in `cluster.auto.tfvars`). Self sign-up is off (`allow_admin_create_user_only`), so a stranger who finds the URL can't create an account and hold the global session lock. `make users USERS_FILE=…` invites each `<username> <email>` line; Cognito emails a temporary password.
+**Trade-off:** the ALB is scanned like any public endpoint, and the health routes are public. Checkov flags the open port 80 (CKV_AWS_260); expected.
 
 ---
 
@@ -200,7 +206,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 | L-11 | kind doesn't enforce NetworkPolicies by default | Local behavior can differ from EKS | `make kind-up CALICO=1` enforces them locally (D-30); policies still verified on EKS |
 | L-12 | The lab's SCP denies `s3:GetBucketObjectLockConfiguration` | `aws_s3_bucket` can't be used; buckets need a second provider (`awscc`) | D-24; CI rejects `aws_s3_bucket` (CONV §1.4) |
 | L-13 | Direct mode (D-25): dev auth, no global lock, ALB reachable over plain HTTP from the demo IPs | Anyone on a listed IP can act as any user; two sessions at once would conflict | ALB limited to the demo machines' IPs; one demo user; replaced by Cognito and ElastiCache for the final delivery (D-31: no CloudFront) |
-| L-14 | No TLS on the app or the API, and no PKCE (the SPA turns it off on HTTP, frontend D-25). Browsers call the ALB directly, so every user's public IP must be in `alb_ingress_cidrs` | Anyone on the network can read codes, tokens and API traffic; a new user's IP needs a `cluster` apply before it can reach the API | Demo users only; access tokens last 60 min; the ALB allows only listed IPs (D-31) |
+| L-14 | No TLS on the app or the API, and no PKCE (the SPA turns it off on HTTP, frontend D-25). The ALB is open to the internet (D-32) | Anyone on the network can read codes, tokens and API traffic; anyone can hit `/health` and get 401s from the API | Admin-created accounts only; access tokens last 60 min; `alb_ingress_cidrs` can be narrowed |
 
 ---
 

@@ -43,7 +43,7 @@ Rules for Terraform, Kubernetes manifests, the state machine, the TypeScript ser
 - `prevent_destroy` lifecycle on the DynamoDB table, the files bucket and the Cognito pool. `deletion_protection_enabled` on DynamoDB.
 - Nothing billed hourly goes in `foundation`.
 - Data never goes in `cluster` (destroying it must never lose sessions, logs or users).
-- Security groups: least open; describe each rule; no `0.0.0.0/0` ingress except where ARCHITECTURE says so (none; the ALB is limited to `alb_ingress_cidrs`).
+- Security groups: least open; describe each rule; no `0.0.0.0/0` ingress except where ARCHITECTURE says so (only the ALB on port 80, `alb_ingress_cidrs`, D-32).
 - Encryption at rest on for S3, DynamoDB and SQS; ElastiCache in-transit encryption on.
 
 ### 1.7 Workflow

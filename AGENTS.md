@@ -53,7 +53,7 @@ Out of scope unless the team asks: multiple environments (dev/stage/prod), custo
 | IaC | **Terraform** ≥ 1.10, AWS provider ~> 6.x, `awscc` provider ~> 1.x for S3 buckets only (D-24), Helm provider for the LB controller. **Two stacks** (`foundation`, `cluster`) + `bootstrap`. State in S3 with native lock file (`use_lockfile = true`) |
 | Kubernetes | **Amazon EKS** (managed node group, 2× `t3.medium`, AL2023), **Kustomize** (base + `local` and `aws` overlays) |
 | Networking | VPC with 2 AZs; **public subnets for nodes and the ALB, no NAT**; private subnets for ElastiCache |
-| Ingress | **AWS Load Balancer Controller** → ALB (IP targets), HTTP, restricted to `alb_ingress_cidrs` (D-31) |
+| Ingress | **AWS Load Balancer Controller** → ALB (IP targets), HTTP, open by default through `alb_ingress_cidrs`; the API needs a Cognito token (D-31, D-32) |
 | Network policy | Amazon VPC CNI with network policy enforcement enabled |
 | Orchestration | **AWS Step Functions**, Standard workflow, **JSONata** |
 | Queues | SQS `faults` (standard) + DLQ; `user-actions.fifo` + DLQ |
@@ -80,6 +80,7 @@ make status                # nodes, pods per namespace, ALB DNS, cost reminder
 make cluster-down          # ⚠ delete Ingress (removes ALB) → wait → terraform destroy cluster
 make images                # build + push injector and mock-system images (git SHA tag)
 make e2e-user              # ⚠ create or reset the e2e Cognito user (E2E_USERNAME, E2E_PASSWORD from the env; asks first)
+make users USERS_FILE=f    # invite Cognito users ("<username> <email>" per line); Cognito emails a temporary password
 make kind-up / kind-down   # local cluster with mock system + injector (CALICO=1 enforces NetworkPolicies)
 make local-smoke           # on kind: FAULT via LocalStack → system down → revive
 make netpol-test           # on kind with CALICO=1: NetworkPolicies allow and deny as designed
@@ -107,7 +108,7 @@ oncall-training-infra/
 ├── services/
 │   ├── injector/            TypeScript: consumes `faults`, breaks the mock system
 │   └── mock-system/         TypeScript: one image, ROLE = gateway | orders | worker-svc
-├── scripts/                 lab-creds.sh · render-config.sh · create-e2e-user.sh · kind-up.sh · local-smoke.sh
+├── scripts/                 lab-creds.sh · render-config.sh · create-e2e-user.sh · invite-users.sh · kind-up.sh · local-smoke.sh
 └── .github/workflows/       ci.yml · images.yml · cluster.yml · deploy.yml
 ```
 

@@ -142,8 +142,7 @@ Then run the backend's Release workflow so its image and scenarios exist in the 
 ```bash
 make foundation-apply          # S3, DynamoDB, SQS, ECR (cheap, stays up)
 make foundation-output         # share the queue URLs, table and ECR URLs with the team
-cp terraform/cluster/terraform.tfvars.example terraform/cluster/cluster.auto.tfvars
-# edit alb_ingress_cidrs: your and your teammate's public IP (curl -s https://checkip.amazonaws.com)
+cp terraform/cluster/terraform.tfvars.example terraform/cluster/cluster.auto.tfvars   # optional overrides
 make images                    # needs Docker; builds linux/amd64 and pushes with the git SHA tag
 ```
 

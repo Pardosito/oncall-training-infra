@@ -112,8 +112,6 @@ cluster-plan: check-creds ## Plan the cluster stack (VPC, EKS, nodes, add-ons, L
 
 .PHONY: cluster-up
 cluster-up: cluster-plan ## ⚠ Create the cluster, render config, apply k8s/overlays/aws (~20 min, billable)
-	@[ -f terraform/cluster/cluster.auto.tfvars ] || \
-	  echo "warning: no terraform/cluster/cluster.auto.tfvars; the ALB will accept no traffic (alb_ingress_cidrs = [])"
 	$(call confirm,This creates the EKS cluster (≈ \$$0.25/h until make cluster-down).)
 	@$(TF_CLUSTER) apply -input=false cluster.tfplan
 	@rm -f terraform/cluster/cluster.tfplan
@@ -165,6 +163,12 @@ e2e-user: check-creds ## ⚠ Create or reset the e2e Cognito user (E2E_USERNAME,
 	$(call tf_init,foundation)
 	$(call confirm,This creates or resets the e2e user (E2E_USERNAME, default e2e) in the Cognito user pool.)
 	@scripts/create-e2e-user.sh
+
+.PHONY: users
+users: check-creds ## Invite Cognito users from USERS_FILE (lines: "<username> <email>"); emails a temporary password
+	@[ -n "$(USERS_FILE)" ] || { echo "usage: make users USERS_FILE=users.txt" >&2; exit 1; }
+	$(call tf_init,foundation)
+	@scripts/invite-users.sh "$(USERS_FILE)"
 
 # ---- Local (kind, ARCHITECTURE §14) ------------------------------------------
 
