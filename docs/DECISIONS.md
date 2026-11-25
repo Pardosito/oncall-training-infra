@@ -44,6 +44,7 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-28 | 2026-11-05 | No API Gateway: CloudFront is the edge, the ALB routes to the pods | Decided |
 | D-29 | 2026-11-21 | State machine error handling: retry only idempotent sends and writes, never `WaitForFix` or a failed condition; every path still sends `SESSION_ENDED` | Decided |
 | D-30 | 2026-11-21 | kind: the backend runs on the host, the injector reaches LocalStack through `host.docker.internal`; Calico uses pod range `10.244.0.0/16` | Decided |
+| D-31 | 2026-11-25 | No CloudFront: SPA on the S3 website endpoint, Cognito callbacks through HTTPS bounce pages on the same bucket, API on the ALB with CORS | Decided (replaces D-07/D-08 for the final delivery) |
 
 ---
 
@@ -174,6 +175,12 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 **Alternatives:** the backend in kind too (another image build per change, and it would need the kubeconfig of the cluster it runs in anyway); LocalStack in kind (duplicates the backend's compose).
 
 ---
+
+### D-31 · S3 website instead of CloudFront
+**Why:** the team can't use CloudFront in the Learner Lab. The SPA is served by S3 static website hosting (`site` bucket, public read through a bucket policy, `index.html` as index and error document so deep links load the SPA).
+**Cognito:** callback and sign-out URLs must be HTTPS (or localhost), but the website endpoint is HTTP. So the app client registers two tiny pages on the bucket's **HTTPS REST endpoint** (`https://<bucket>.s3.us-east-1.amazonaws.com/auth/callback.html` and `/auth/signed-out.html`); they forward the code and state unchanged to the SPA on the website endpoint. Browsers don't expose Web Crypto on plain HTTP, so the SPA turns PKCE off there (frontend D-25).
+**API:** the SPA calls the ALB directly; the backend allows the website origin with `CORS_ORIGINS` (backend D-35), rendered by `render-config.sh` from the `site_url` output. The ALB stays limited to `alb_ingress_cidrs`.
+**Trade-off:** no HTTPS for the app or the API, and no PKCE: an authorization code or token on the network could be read. Acceptable for a lab demo; CloudFront + ACM (F-03) removes it.
 
 ## 3. Current limitations
 

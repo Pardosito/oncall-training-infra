@@ -34,9 +34,12 @@ alb_sg="$(require "$cluster" alb_security_group_id)"
 ecr_registry="${mock_repo_url%%/*}"
 
 # Outputs that only exist from M2 on. Until then the MVP config below applies (D-25, INF-139).
-for later in athena_workgroup glue_database cognito_user_pool_id cognito_client_id; do
+for later in athena_workgroup glue_database; do
   [ -n "$(get "$foundation" "$later")" ] || echo "note: no '$later' output yet (M2); not in config.env" >&2
 done
+cognito_user_pool_id="$(get "$foundation" cognito_user_pool_id)"
+cognito_client_id="$(get "$foundation" cognito_client_id)"
+site_url="$(get "$foundation" site_url)"
 state_machine_arn="$(get "$foundation" state_machine_arn)"
 # direct until the backend handles AWAIT_FIX (ARCHITECTURE §15); ORCHESTRATION_MODE=stepfunctions switches.
 orchestration_mode="${ORCHESTRATION_MODE:-direct}"
@@ -61,11 +64,20 @@ MOCK_NAMESPACE=mock
 MOCK_HEALTH_URL_TEMPLATE=http://{service}.mock.svc.cluster.local:8080/health
 MOCK_CLUSTER=kubernetes
 STATS_MODE=athena
-# MVP mode (ARCHITECTURE §15, INF-139): no Cognito. Removed in M2.
-AUTH_MODE=dev
-ALLOW_DEV_AUTH=true
 ORCHESTRATION_MODE=$orchestration_mode
 CONF
+# Cognito (INF-031..033) once foundation has it; until then the MVP dev auth (INF-139).
+if [ -n "$cognito_user_pool_id" ] && [ -n "$cognito_client_id" ]; then
+  cat >>"$OVERLAY/config.env" <<CONF
+AUTH_MODE=cognito
+COGNITO_USER_POOL_ID=$cognito_user_pool_id
+COGNITO_CLIENT_ID=$cognito_client_id
+CONF
+else
+  printf 'AUTH_MODE=dev\nALLOW_DEV_AUTH=true\n' >>"$OVERLAY/config.env"
+fi
+# D-31: the SPA on the S3 website endpoint calls the ALB cross-origin (backend D-35).
+[ -z "$site_url" ] || echo "CORS_ORIGINS=$site_url" >>"$OVERLAY/config.env"
 [ -z "$state_machine_arn" ] || echo "STATE_MACHINE_ARN=$state_machine_arn" >>"$OVERLAY/config.env"
 # ElastiCache (rediss://, D-09): the backend's lock, events and snapshots; the injector's events.
 [ -z "$redis_url" ] || echo "REDIS_URL=$redis_url" >>"$OVERLAY/config.env"
