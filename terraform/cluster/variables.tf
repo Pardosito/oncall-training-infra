@@ -44,7 +44,7 @@ variable "node_count" {
 
 variable "alb_ingress_cidrs" {
   type        = list(string)
-  description = "MVP only (INF-138): public IPs allowed to reach the ALB on port 80, e.g. [\"203.0.113.7/32\"]. Set real values in cluster.auto.tfvars (gitignored). Replaced by the CloudFront prefix list in M2 (INF-059)."
+  description = "Public IPs (INF-138) allowed to reach the ALB on port 80, e.g. [\"203.0.113.7/32\"]. Set real values in cluster.auto.tfvars (gitignored). Browsers call the ALB directly (D-31), so every user's IP goes here."
   default     = []
 
   validation {

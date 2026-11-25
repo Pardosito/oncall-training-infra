@@ -59,7 +59,7 @@ Out of scope unless the team asks: multiple environments (dev/stage/prod), custo
 | Queues | SQS `faults` (standard) + DLQ; `user-actions.fifo` + DLQ |
 | Data | DynamoDB `Sessions`, S3 (`files`, `site`), Glue table with partition projection, Athena workgroup |
 | Cache | **ElastiCache** Valkey, single small node, TLS on |
-| Auth | Cognito User Pool, managed login, public app client (PKCE) |
+| Auth | Cognito User Pool, managed login, public app client (code flow; PKCE only on HTTPS/localhost, D-31) |
 | Site and auth | S3 website endpoint (SPA, HTTP) + HTTPS REST endpoint for the Cognito pages; the SPA calls the ALB directly with CORS (D-31; CloudFront is a future improvement, F-03) |
 | Images | Amazon ECR, tags = git SHA, immutable |
 | Services here | **TypeScript / Node 22** (injector, mock system), pnpm workspace, Vitest |

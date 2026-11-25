@@ -63,7 +63,6 @@ USER_ACTIONS_QUEUE_URL=$user_actions_queue_url
 MOCK_NAMESPACE=mock
 MOCK_HEALTH_URL_TEMPLATE=http://{service}.mock.svc.cluster.local:8080/health
 MOCK_CLUSTER=kubernetes
-STATS_MODE=athena
 ORCHESTRATION_MODE=$orchestration_mode
 CONF
 # Cognito (INF-031..033) once foundation has it; until then the MVP dev auth (INF-139).

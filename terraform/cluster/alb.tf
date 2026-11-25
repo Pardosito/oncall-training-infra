@@ -10,7 +10,7 @@ resource "aws_security_group" "alb" {
   tags = { Name = "${local.name}-alb" }
 }
 
-# MVP: the demo machines' public IPs. M2 swaps these for the CloudFront prefix list (INF-059).
+# The users' public IPs: the SPA on the S3 website calls the ALB directly (D-31, no CloudFront).
 resource "aws_vpc_security_group_ingress_rule" "alb_http" {
   for_each = toset(var.alb_ingress_cidrs)
 
