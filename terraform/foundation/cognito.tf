@@ -43,6 +43,10 @@ resource "aws_cognito_user_pool" "this" {
 
   deletion_protection = "INACTIVE"
   tags                = local.tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # Classic hosted UI (version 1): version 2 needs a branding resource before the page renders.

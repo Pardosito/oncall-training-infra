@@ -157,6 +157,15 @@ images: check-creds ## Build + push injector and mock-system to ECR (linux/amd64
 	$(call tf_init,foundation)
 	@scripts/images.sh
 
+# ---- E2E user (D-22) ---------------------------------------------------------
+# Creates or resets a confirmed Cognito user. The password comes from the environment, not the command line.
+
+.PHONY: e2e-user
+e2e-user: check-creds ## ⚠ Create or reset the e2e Cognito user (E2E_USERNAME, E2E_PASSWORD from the env; asks first)
+	$(call tf_init,foundation)
+	$(call confirm,This creates or resets the e2e user (E2E_USERNAME, default e2e) in the Cognito user pool.)
+	@scripts/create-e2e-user.sh
+
 # ---- Local (kind, ARCHITECTURE §14) ------------------------------------------
 
 .PHONY: kind-up

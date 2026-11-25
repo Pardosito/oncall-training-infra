@@ -20,8 +20,8 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-04 | 2026-10-22 | Nodes and ALB in public subnets, no NAT; ElastiCache in private subnets | Decided |
 | D-05 | 2026-10-22 | EKS managed node group: 2× t3.medium On-Demand, IMDS hop limit 2, access entries | Decided |
 | D-06 | 2026-10-22 | NetworkPolicies enforced by the Amazon VPC CNI | Decided |
-| D-07 | 2026-10-22 | AWS Load Balancer Controller → ALB, ALB restricted to CloudFront's prefix list | Decided |
-| D-08 | 2026-10-22 | CloudFront lives in `foundation`; its API origin is updated after each `cluster-up` | Decided |
+| D-07 | 2026-10-22 | AWS Load Balancer Controller → ALB, ALB restricted to CloudFront's prefix list | Superseded by D-31 |
+| D-08 | 2026-10-22 | CloudFront lives in `foundation`; its API origin is updated after each `cluster-up` | Superseded by D-31 |
 | D-09 | 2026-10-22 | ElastiCache Valkey, single small node, in-transit TLS, no AUTH token | Decided |
 | D-10 | 2026-10-22 | Kustomize base + `aws`/`local` overlays; config generated from Terraform outputs | Decided |
 | D-11 | 2026-10-22 | Namespaced Roles in `mock` bound to service accounts in other namespaces; no ClusterRoles | Decided |
@@ -41,7 +41,7 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-25 | 2026-10-27 | Nov 5 MVP: one incident loop on EKS without Step Functions, ElastiCache, Cognito or CloudFront | Decided (temporary until Nov 19) |
 | D-26 | 2026-11-01 | EKS access: one explicit access entry for the lab role; no automatic creator entry | Decided |
 | D-27 | 2026-11-01 | Image tags and account-specific values reach the aws overlay through Kustomize replacements | Decided |
-| D-28 | 2026-11-05 | No API Gateway: CloudFront is the edge, the ALB routes to the pods | Decided |
+| D-28 | 2026-11-05 | No API Gateway: CloudFront is the edge, the ALB routes to the pods | Decided (CloudFront edge superseded by D-31) |
 | D-29 | 2026-11-21 | State machine error handling: retry only idempotent sends and writes, never `WaitForFix` or a failed condition; every path still sends `SESSION_ENDED` | Decided |
 | D-30 | 2026-11-21 | kind: the backend runs on the host, the injector reaches LocalStack through `host.docker.internal`; Calico uses pod range `10.244.0.0/16` | Decided |
 | D-31 | 2026-11-25 | No CloudFront: SPA on the S3 website endpoint, Cognito callbacks through HTTPS bounce pages on the same bucket, API on the ALB with CORS | Decided (replaces D-07/D-08 for the final delivery) |
@@ -161,6 +161,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 
 
 ### D-28 · No API Gateway
+**Superseded in part by D-31:** CloudFront is no longer the edge; the browser calls the ALB directly with CORS. The rest of this decision (no API Gateway) still holds.
 **Why:** an ALB and API Gateway overlap only at the edges (TLS, path routing, basic auth). The ALB is a load balancer: it routes to the pods, health-checks them and integrates with Kubernetes through the Ingress. API Gateway is an API management product: API keys, usage plans, per-client throttling, request validation, authorizers. Our requirements (one SPA client, one backend, the API on the same domain as the SPA, HTTPS, the ALB reachable only from CloudFront) are covered by CloudFront (edge, HTTPS, one domain, no CORS), the ALB (routing, health checks) and the backend (Cognito token validation).
 **Not interchangeable:** API Gateway can't reach pods inside the VPC by itself; it needs a VPC Link to a load balancer. On EKS it would sit in front of the ALB, not replace it, adding a hop (CloudFront → API Gateway → VPC Link → ALB → pod), per-request cost, a 29 s default integration timeout on REST APIs, and a second place for routing rules.
 **When to revisit:** several API consumers (partners, mobile apps) needing keys, quotas or usage tracking; a monetized or rate-limited public API; Lambda backends; one facade with uniform policies over many services. On Kubernetes, also weigh an in-cluster gateway (Envoy Gateway, Kong, the Gateway API).
@@ -174,31 +175,32 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 **Decision:** kind runs only the mock system and the injector (`k8s/overlays/local` drops the backend Deployments and Service; its namespace, service accounts and RoleBindings stay, so RBAC matches EKS). The backend runs on the host with its docker-compose (LocalStack, Redis); the injector reaches them at `host.docker.internal`, with LocalStack's dummy credentials committed in `k8s/overlays/local/config.env`. Images are built for the host's platform and loaded with `kind load` (`imagePullPolicy: Never`). With `CALICO=1` the pod range is `10.244.0.0/16`, not Calico's default `192.168.0.0/16`: Docker Desktop puts the host at `192.168.65.254`, and Calico would route it as pod traffic, so the injector couldn't reach LocalStack. Every kubectl call in the scripts names the kind context, so they can't touch EKS.
 **Alternatives:** the backend in kind too (another image build per change, and it would need the kubeconfig of the cluster it runs in anyway); LocalStack in kind (duplicates the backend's compose).
 
----
-
 ### D-31 · S3 website instead of CloudFront
 **Why:** the team can't use CloudFront in the Learner Lab. The SPA is served by S3 static website hosting (`site` bucket, public read through a bucket policy, `index.html` as index and error document so deep links load the SPA).
 **Cognito:** callback and sign-out URLs must be HTTPS (or localhost), but the website endpoint is HTTP. So the app client registers two tiny pages on the bucket's **HTTPS REST endpoint** (`https://<bucket>.s3.us-east-1.amazonaws.com/auth/callback.html` and `/auth/signed-out.html`); they forward the code and state unchanged to the SPA on the website endpoint. Browsers don't expose Web Crypto on plain HTTP, so the SPA turns PKCE off there (frontend D-25).
 **API:** the SPA calls the ALB directly; the backend allows the website origin with `CORS_ORIGINS` (backend D-35), rendered by `render-config.sh` from the `site_url` output. The ALB stays limited to `alb_ingress_cidrs`.
 **Trade-off:** no HTTPS for the app or the API, and no PKCE: an authorization code or token on the network could be read. Acceptable for a lab demo; CloudFront + ACM (F-03) removes it.
 
+---
+
 ## 3. Current limitations
 
 | ID | Limitation | Impact | Mitigation now |
 |---|---|---|---|
 | L-01 | No per-workload IAM (all pods use LabRole) | Any pod can call any AWS API LabRole allows | Namespaces, RBAC, NetworkPolicies; only our images run in the cluster |
-| L-02 | CloudFront → ALB is plain HTTP; API origin updates after `cluster-up` | Traffic between CloudFront and the ALB isn't encrypted; `/api` returns 502 while the cluster is down | ALB only accepts CloudFront IP ranges; documented in the lab routine |
+| L-02 | No CDN: the SPA is served over HTTP from the S3 website endpoint, and the browser calls the ALB over HTTP; the ALB's DNS name changes on every `cluster-up` | Login codes and tokens travel unencrypted (see L-14); `/api` is unreachable while the cluster is down, and the API's address changes with each `cluster-up` | ALB limited to `alb_ingress_cidrs`; `make status` prints the ALB DNS name; the Cognito pages stay on HTTPS |
 | L-03 | Nodes in public subnets, no NAT | Not production practice | Tight security groups; no SSH; IMDSv2 required |
 | L-04 | `cluster-up` takes about 20 min | Slow start to each work session | Develop on kind + LocalStack; bring EKS up only to integrate or demo |
 | L-05 | Single ElastiCache node, single worker, single injector | No failover; a restart pauses sessions for seconds | Kubernetes restarts pods; backend tolerates a Redis restart (backend L-03/L-04) |
 | L-06 | Lab credentials expire each session | Workflows fail until `make creds` runs | The credential check gives a clear error |
 | L-07 | Lab budget is finite; the cluster costs about $6/day if left up | Risk of losing the account | `make cluster-down` routine; budget check at session start |
 | L-08 | State bucket and shared environment exist only in Ian's lab account | JP can't apply to the shared environment | JP can stand up a personal copy with the same code in his lab |
-| L-09 | No custom domain or certificate | `*.cloudfront.net` URL | Fine for the course |
+| L-09 | No custom domain or certificate | URLs are `*.s3-website-us-east-1.amazonaws.com` (HTTP) and `*.s3.us-east-1.amazonaws.com` (Cognito pages) | Fine for the course; CloudFront + ACM is F-03 |
 | L-10 | No metrics or alerting stack | Debugging relies on `kubectl logs` and CloudWatch (Step Functions) | `make status`; JSON logs |
 | L-11 | kind doesn't enforce NetworkPolicies by default | Local behavior can differ from EKS | `make kind-up CALICO=1` enforces them locally (D-30); policies still verified on EKS |
 | L-12 | The lab's SCP denies `s3:GetBucketObjectLockConfiguration` | `aws_s3_bucket` can't be used; buckets need a second provider (`awscc`) | D-24; CI rejects `aws_s3_bucket` (CONV §1.4) |
-| L-13 | Direct mode (D-25): dev auth, no global lock, ALB reachable over plain HTTP from the demo IPs | Anyone on a listed IP can act as any user; two sessions at once would conflict | ALB limited to the demo machines' IPs; one demo user; replaced by Cognito, ElastiCache and CloudFront for the final delivery |
+| L-13 | Direct mode (D-25): dev auth, no global lock, ALB reachable over plain HTTP from the demo IPs | Anyone on a listed IP can act as any user; two sessions at once would conflict | ALB limited to the demo machines' IPs; one demo user; replaced by Cognito and ElastiCache for the final delivery (D-31: no CloudFront) |
+| L-14 | No TLS on the app or the API, and no PKCE (the SPA turns it off on HTTP, frontend D-25). Browsers call the ALB directly, so every user's public IP must be in `alb_ingress_cidrs` | Anyone on the network can read codes, tokens and API traffic; a new user's IP needs a `cluster` apply before it can reach the API | Demo users only; access tokens last 60 min; the ALB allows only listed IPs (D-31) |
 
 ---
 
@@ -208,7 +210,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 |---|---|---|
 | F-01 | Real account: IRSA or EKS Pod Identity with one least-privilege role per service account; GitHub OIDC deploy role; consider the community EKS module | L-01, L-06 |
 | F-02 | Private node subnets + VPC endpoints (S3, DynamoDB, SQS, ECR, STS) instead of NAT | L-03 |
-| F-03 | Custom domain + ACM certificate; HTTPS from CloudFront to the ALB; origin-verify secret header | L-02, L-09 |
+| F-03 | CloudFront in front of the site and the API (D-31), custom domain + ACM certificate, HTTPS to the ALB, origin-verify secret header | L-02, L-09, L-14 |
 | F-04 | Per-session mock namespaces (with ResourceQuota and cleanup) to allow concurrent sessions | Backend L-01 |
 | F-05 | Prometheus + Grafana (or CloudWatch Container Insights) for the mock system; the dashboard could read real metrics | L-10, realism |
 | F-06 | Chaos Mesh or Litmus for richer faults (latency, CPU stress, network partitions) | Scenario variety |
@@ -224,7 +226,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 
 | ID | Question | Owner | Blocks |
 |---|---|---|---|
-| O-01 | **Learner Lab smoke test.** Verified: EKS with LabRole as cluster and node role (D-26), LB controller on the node role. Still to check: the smallest allowed ElastiCache node type; Cognito managed login domain; CloudFront Functions; Step Functions logging with LabRole; VPC CNI network policy agent permissions | Ian | Everything in `cluster` |
+| O-01 | **Learner Lab smoke test.** Verified: EKS with LabRole as cluster and node role (D-26), LB controller on the node role. Still to check: the smallest allowed ElastiCache node type; Cognito managed login domain; Step Functions logging with LabRole; VPC CNI network policy agent permissions | Ian | Everything in `cluster` |
 | O-02 | The success criterion says the **injector** "kills and revives" a service. Today the user's fix and the backend worker's reset revive it. If the injector itself must revive it, add a `RESTORE_BASELINE` fault type sent by the state machine at the end (instead of the worker reset) | Ian | State machine end path |
 | O-03 | Does JSONata's `TimeoutSeconds` expression and `sqs:sendMessage.waitForTaskToken` with FIFO arguments (`MessageGroupId`, `MessageDeduplicationId`) work as written? Works in LocalStack 4.4: `make sfn-smoke`'s resolve, abandon and timeout paths pass there (2026-11-21). Still to confirm in the lab with `make sfn-test` and `make sfn-smoke` | Ian | `WaitForFix` |
 | O-04 | Do the VPC CNI network policies allow kubelet probes and ALB IP-target traffic as expected (§5.3)? Calico on kind: probes pass and the allowed and denied paths behave as designed (`make netpol-test`, 2026-11-21); EKS still to check in INF-067 | Ian | NetworkPolicies |
