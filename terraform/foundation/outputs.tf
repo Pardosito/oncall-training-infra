@@ -45,3 +45,38 @@ output "state_machine_arn" {
   description = "Scenario state machine ARN (backend STATE_MACHINE_ARN, used when ORCHESTRATION_MODE=stepfunctions)."
   value       = aws_sfn_state_machine.scenario.arn
 }
+
+output "cognito_user_pool_id" {
+  description = "Cognito user pool id (backend COGNITO_USER_POOL_ID)."
+  value       = aws_cognito_user_pool.this.id
+}
+
+output "cognito_client_id" {
+  description = "SPA app client id, public (backend COGNITO_CLIENT_ID, frontend VITE_COGNITO_CLIENT_ID)."
+  value       = aws_cognito_user_pool_client.spa.id
+}
+
+output "cognito_authority" {
+  description = "OIDC authority (frontend VITE_COGNITO_AUTHORITY)."
+  value       = "https://cognito-idp.us-east-1.amazonaws.com/${aws_cognito_user_pool.this.id}"
+}
+
+output "cognito_domain" {
+  description = "Managed login base URL (frontend VITE_COGNITO_DOMAIN)."
+  value       = "https://${aws_cognito_user_pool_domain.this.domain}.auth.us-east-1.amazoncognito.com"
+}
+
+output "site_bucket" {
+  description = "S3 bucket the frontend uploads its build to (D-31)."
+  value       = local.site_bucket
+}
+
+output "site_url" {
+  description = "Where users open the app: the S3 website endpoint (HTTP, D-31). Also the backend CORS_ORIGINS."
+  value       = local.site_website_url
+}
+
+output "site_https_origin" {
+  description = "HTTPS origin of the site bucket; serves the Cognito bounce pages under /auth/ (D-31)."
+  value       = local.site_https_origin
+}

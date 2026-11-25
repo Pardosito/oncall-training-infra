@@ -11,7 +11,7 @@ Rules for Terraform, Kubernetes manifests, the state machine, the TypeScript ser
   - `variables.tf`
   - `locals.tf`
   - `outputs.tf`
-  - **one file per concern** (`s3.tf`, `dynamodb.tf`, `sqs.tf`, `stepfunctions.tf`, `cognito.tf`, `cloudfront.tf`, `vpc.tf`, `eks.tf`, `elasticache.tf`…)
+  - **one file per concern** (`s3.tf`, `dynamodb.tf`, `sqs.tf`, `stepfunctions.tf`, `cognito.tf`, `vpc.tf`, `eks.tf`, `elasticache.tf`…)
 - Local modules in `terraform/modules/` only when something is repeated (e.g. `queue-with-dlq`). Don't create modules for single resources.
 - **Prefer plain resources over community modules** (e.g. `terraform-aws-modules/eks`). Big modules create IAM roles, KMS keys and policies by default, which the Learner Lab forbids, and hide what's being created. Small, well-known modules (like the VPC module) are OK if every IAM-creating option is off. Each one needs a decision entry.
 
@@ -43,7 +43,7 @@ Rules for Terraform, Kubernetes manifests, the state machine, the TypeScript ser
 - `prevent_destroy` lifecycle on the DynamoDB table, the files bucket and the Cognito pool. `deletion_protection_enabled` on DynamoDB.
 - Nothing billed hourly goes in `foundation`.
 - Data never goes in `cluster` (destroying it must never lose sessions, logs or users).
-- Security groups: least open; describe each rule; no `0.0.0.0/0` ingress except where ARCHITECTURE says so (none in the MVP; the ALB is limited to the CloudFront prefix list).
+- Security groups: least open; describe each rule; no `0.0.0.0/0` ingress except where ARCHITECTURE says so (none; the ALB is limited to `alb_ingress_cidrs`).
 - Encryption at rest on for S3, DynamoDB and SQS; ElastiCache in-transit encryption on.
 
 ### 1.7 Workflow
