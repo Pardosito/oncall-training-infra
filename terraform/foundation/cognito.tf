@@ -56,11 +56,11 @@ resource "aws_cognito_user_pool" "this" {
   }
 }
 
-# Classic hosted UI (version 1): version 2 needs a branding resource before the page renders.
+# Managed login (version 2), styled by aws_cognito_managed_login_branding.spa (D-34).
 resource "aws_cognito_user_pool_domain" "this" {
   domain                = "${local.name}-${local.account_id}"
   user_pool_id          = aws_cognito_user_pool.this.id
-  managed_login_version = 1
+  managed_login_version = 2
 }
 
 resource "aws_cognito_user_pool_client" "spa" {

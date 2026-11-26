@@ -47,6 +47,7 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-31 | 2026-11-25 | No CloudFront: SPA on the S3 website endpoint, Cognito callbacks through HTTPS bounce pages on the same bucket, API on the ALB with CORS | Decided (replaces D-07/D-08 for the final delivery) |
 | D-32 | 2026-11-25 | ALB open to `0.0.0.0/0` on port 80; Cognito accounts created by admins only (`make users`), no self sign-up | Decided (open ALB superseded by D-33; admin-created accounts stay) |
 | D-33 | 2026-11-26 | API Gateway HTTP API (foundation, stable HTTPS URL, JWT, throttling, CORS) → VPC link → internal ALB owned by Terraform; pods registered with a TargetGroupBinding | Decided |
+| D-34 | 2026-11-26 | Managed login version 2 with Carbon g100 branding in Terraform, instead of a custom sign-in UI | Decided |
 
 ---
 
@@ -202,6 +203,11 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 **Cost:** HTTP API $1 per million requests (about $0.004/h per polling user); VPC links for HTTP APIs are free; the ALB costs the same, minus its two public IPv4 addresses (about $0.01/h less).
 **Trade-offs:** another hop (API Gateway → VPC link → ALB → pod) and a 30 s integration timeout (we have no long requests). Throttling is per stage and route, not per user (that would need a REST API with usage plans). The SPA itself is still HTTP on S3, so PKCE stays off until the site moves behind HTTPS too (D-33 phase 4, or F-03).
 **Rejected:** a public ALB with a secret header from API Gateway (not needed since VPC links work in the lab); keeping the Ingress-managed ALB and updating the integration after each `cluster-up` (an extra step and the D-20 cleanup problem).
+
+### D-34 · Carbon-styled managed login
+**Why:** the classic hosted UI looked nothing like the Carbon SPA. Managed login version 2 takes a branding document (colors, radii, scheme, logo, favicon) per app client.
+**How:** `aws_cognito_managed_login_branding.spa` loads `terraform/foundation/branding/carbon-g100.json`, Cognito's full default settings document transformed by `carbon-g100.jq` (g100 backgrounds `#161616`/`#262626`, primary `#0f62fe`, links `#78a9ff`, white focus, 0 radius, dark scheme). The domain moves to `managed_login_version = 2`. Sign-in, the forced new password on first login and forgot-password keep working with no SPA change.
+**Trade-off:** fonts (no IBM Plex) and layout stay Cognito's. A sign-in page built in the SPA with Carbon components would match exactly but replaces the redirect flow (about a day of work); a future improvement.
 
 ---
 
