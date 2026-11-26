@@ -30,7 +30,10 @@
             "port": { "type": ["string", "integer"] }
           }
         },
-        "targetGroupARN": { "type": "string", "pattern": "^(arn:aws:elasticloadbalancing:|set-by-cluster-env$)" },
+        "targetGroupARN": {
+          "type": "string",
+          "pattern": "^(arn:aws:elasticloadbalancing:|set-by-cluster-env$)"
+        },
         "targetType": { "enum": ["ip", "instance"] }
       }
     }
