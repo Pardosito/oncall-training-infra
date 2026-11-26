@@ -1,27 +1,24 @@
-# ALB security group (INF-138, MVP) and the AWS Load Balancer Controller (INF-060).
+# Internal ALB for the backend api (D-33) and the AWS Load Balancer Controller (INF-060).
+# Terraform owns the ALB, its listener and target group; the controller only registers the
+# backend-api pod IPs through the TargetGroupBinding in k8s/overlays/aws. So `make cluster-down`
+# is a plain terraform destroy: nothing in AWS is owned by Kubernetes.
+# Only API Gateway reaches it, through the VPC link (api.tf); it has no public IPs.
 
-# Attached to the ALB through the Ingress annotation `security-groups` (ARCHITECTURE §5.1).
-# The controller adds the node-side rules itself (manage-backend-security-group-rules).
 resource "aws_security_group" "alb" {
   name        = "${local.name}-alb"
-  description = "ALB for the backend api: HTTP from the allowed CIDRs only"
+  description = "Internal ALB for the backend api: HTTP from the API Gateway VPC link only"
   vpc_id      = aws_vpc.this.id
 
   tags = { Name = "${local.name}-alb" }
 }
 
-# The SPA on the S3 website calls the ALB directly (D-31). Open to the internet by default (D-32):
-# every API route but /health needs a Cognito token, and accounts are created by admins only.
-# checkov CKV_AWS_260 (port 80 from 0.0.0.0/0) is expected here.
-resource "aws_vpc_security_group_ingress_rule" "alb_http" {
-  for_each = toset(var.alb_ingress_cidrs)
-
-  security_group_id = aws_security_group.alb.id
-  description       = "HTTP from alb_ingress_cidrs (open by default, D-32)"
-  ip_protocol       = "tcp"
-  from_port         = 80
-  to_port           = 80
-  cidr_ipv4         = each.value
+resource "aws_vpc_security_group_ingress_rule" "alb_from_vpc_link" {
+  security_group_id            = aws_security_group.alb.id
+  description                  = "HTTP from the API Gateway VPC link"
+  ip_protocol                  = "tcp"
+  from_port                    = 80
+  to_port                      = 80
+  referenced_security_group_id = aws_security_group.vpc_link.id
 }
 
 resource "aws_vpc_security_group_egress_rule" "alb_to_vpc" {
@@ -31,6 +28,55 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_vpc" {
   from_port         = 0
   to_port           = 65535
   cidr_ipv4         = aws_vpc.this.cidr_block
+}
+
+# Pods use the node ENIs, which carry the EKS cluster security group.
+resource "aws_vpc_security_group_ingress_rule" "pods_from_alb" {
+  security_group_id            = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
+  description                  = "backend-api pods from the internal ALB"
+  ip_protocol                  = "tcp"
+  from_port                    = local.api_port
+  to_port                      = local.api_port
+  referenced_security_group_id = aws_security_group.alb.id
+}
+
+resource "aws_lb" "api" {
+  name               = "${local.name}-api"
+  internal           = true
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb.id]
+  subnets            = [for s in aws_subnet.private : s.id]
+
+  drop_invalid_header_fields = true
+  idle_timeout               = 60
+}
+
+resource "aws_lb_target_group" "api" {
+  name                 = "${local.name}-api"
+  target_type          = "ip"
+  protocol             = "HTTP"
+  port                 = local.api_port
+  vpc_id               = aws_vpc.this.id
+  deregistration_delay = 15
+
+  health_check {
+    path                = "/healthz"
+    matcher             = "200"
+    interval            = 10
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+}
+
+resource "aws_lb_listener" "api" {
+  load_balancer_arn = aws_lb.api.arn
+  port              = 80
+  protocol          = "HTTP" # private hop; TLS ends at API Gateway
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
 }
 
 # Uses the node role (LabRole) through IMDS (hop limit 2); no IRSA in the lab.

@@ -43,7 +43,7 @@ Rules for Terraform, Kubernetes manifests, the state machine, the TypeScript ser
 - `prevent_destroy` lifecycle on the DynamoDB table, the files bucket and the Cognito pool. `deletion_protection_enabled` on DynamoDB.
 - Nothing billed hourly goes in `foundation`.
 - Data never goes in `cluster` (destroying it must never lose sessions, logs or users).
-- Security groups: least open; describe each rule; no `0.0.0.0/0` ingress except where ARCHITECTURE says so (only the ALB on port 80, `alb_ingress_cidrs`, D-32).
+- Security groups: least open; describe each rule; no `0.0.0.0/0` ingress anywhere: the ALB is internal and accepts only the API Gateway VPC link (D-33).
 - Encryption at rest on for S3, DynamoDB and SQS; ElastiCache in-transit encryption on.
 
 ### 1.7 Workflow
@@ -53,7 +53,7 @@ Rules for Terraform, Kubernetes manifests, the state machine, the TypeScript ser
 
 ## 2. Kubernetes manifests (Kustomize)
 
-- Layout: `k8s/base/<area>/` (namespaces, rbac, networkpolicies, app, injector, mock) and `k8s/overlays/{aws,local}`. Overlays change only images, Ingress, config and replica/resource tweaks; behavior lives in base.
+- Layout: `k8s/base/<area>/` (namespaces, rbac, networkpolicies, app, injector, mock) and `k8s/overlays/{aws,local}`. Overlays change only images, the TargetGroupBinding, config and replica/resource tweaks; behavior lives in base.
 - One resource per file, named `<kind>-<name>.yaml` (`deployment-backend-api.yaml`).
 - **Labels** on everything:
   - `app.kubernetes.io/name: <workload>`
@@ -69,7 +69,7 @@ Rules for Terraform, Kubernetes manifests, the state machine, the TypeScript ser
 - **RBAC:** namespaced `Role` + `RoleBinding` only, rules listed exactly as in ARCHITECTURE §5.2. No wildcards (`*`) in verbs or resources. ServiceAccounts that don't call the Kubernetes API set `automountServiceAccountToken: false`.
 - **NetworkPolicies:** every namespace starts with `default-deny-ingress`; each allow policy has a comment saying who needs it.
 - Singletons (`backend-worker`, `injector`) use `strategy: Recreate`.
-- Validate locally: `kustomize build k8s/overlays/aws | kubeconform -strict -summary` (with CRD schemas for Ingress annotations not needed).
+- Validate locally: `kustomize build k8s/overlays/aws | kubeconform -strict -summary` (`make k8s-validate`; CRD schemas such as the TargetGroupBinding are in `k8s/schemas/`).
 
 ## 3. Step Functions
 

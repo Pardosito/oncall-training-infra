@@ -43,7 +43,7 @@ Out of scope unless the team asks: multiple environments (dev/stage/prod), custo
 - **Region:** `us-east-1` only.
 - **EC2:** nano to large instance types, **On-Demand only** (no Spot), at most 9 instances and 32 vCPU per region.
 - **Credentials expire with each lab session.** Refresh them with `make creds`. Never hardcode keys, account IDs or ARNs.
-- **Billing continues after the lab session ends** for EKS, the ALB, ElastiCache and public IPv4 addresses. **Run `make cluster-down` at the end of every work session.** If the lab budget runs out, the account can be disabled and its resources deleted.
+- **Billing continues after the lab session ends** for EKS, the ALB, ElastiCache and public IPv4 addresses (API Gateway bills per request only). **Run `make cluster-down` at the end of every work session.** If the lab budget runs out, the account can be disabled and its resources deleted.
 - The shared environment lives in **Ian's lab account**. All code must work in any lab account through variables and data sources.
 
 ## 5. Stack
@@ -52,15 +52,15 @@ Out of scope unless the team asks: multiple environments (dev/stage/prod), custo
 |---|---|
 | IaC | **Terraform** ≥ 1.10, AWS provider ~> 6.x, `awscc` provider ~> 1.x for S3 buckets only (D-24), Helm provider for the LB controller. **Two stacks** (`foundation`, `cluster`) + `bootstrap`. State in S3 with native lock file (`use_lockfile = true`) |
 | Kubernetes | **Amazon EKS** (managed node group, 2× `t3.medium`, AL2023), **Kustomize** (base + `local` and `aws` overlays) |
-| Networking | VPC with 2 AZs; **public subnets for nodes and the ALB, no NAT**; private subnets for ElastiCache |
-| Ingress | **AWS Load Balancer Controller** → ALB (IP targets), HTTP, open by default through `alb_ingress_cidrs`; the API needs a Cognito token (D-31, D-32) |
+| Networking | VPC with 2 AZs picked by zone ID (never `use1-az3`); **public subnets for nodes, no NAT**; private subnets for the internal ALB, the VPC link and ElastiCache |
+| API entry | **API Gateway HTTP API** (foundation: stable HTTPS URL, CORS, throttling) → JWT authorizer → VPC link → **internal ALB created by Terraform**; the AWS Load Balancer Controller registers the pods with a TargetGroupBinding (D-33) |
 | Network policy | Amazon VPC CNI with network policy enforcement enabled |
 | Orchestration | **AWS Step Functions**, Standard workflow, **JSONata** |
 | Queues | SQS `faults` (standard) + DLQ; `user-actions.fifo` + DLQ |
 | Data | DynamoDB `Sessions`, S3 (`files`, `site`), Glue table with partition projection, Athena workgroup |
 | Cache | **ElastiCache** Valkey, single small node, TLS on |
 | Auth | Cognito User Pool, managed login, public app client (code flow; PKCE only on HTTPS/localhost, D-31) |
-| Site and auth | S3 website endpoint (SPA, HTTP) + HTTPS REST endpoint for the Cognito pages; the SPA calls the ALB directly with CORS (D-31; CloudFront is a future improvement, F-03) |
+| Site and auth | S3 website endpoint (SPA, HTTP) + HTTPS REST endpoint for the Cognito pages; the SPA calls the HTTP API (D-31, D-33; CloudFront is a future improvement, F-03) |
 | Images | Amazon ECR, tags = git SHA, immutable |
 | Services here | **TypeScript / Node 22** (injector, mock system), pnpm workspace, Vitest |
 | Local | **kind** (+ optional Calico for NetworkPolicies), LocalStack from the backend's docker-compose |
@@ -76,8 +76,8 @@ make foundation-plan       # terraform plan for foundation
 make foundation-apply      # ⚠ creates/changes AWS resources (asks for confirmation)
 make cluster-up            # ⚠ cluster stack + kubeconfig + config render + k8s apply (~20 min)
 make deploy BACKEND_TAG=<sha> [INJECTOR_TAG=<sha>] [MOCK_TAG=<sha>]   # roll out images, wait for rollout
-make status                # nodes, pods per namespace, ALB DNS, cost reminder
-make cluster-down          # ⚠ delete Ingress (removes ALB) → wait → terraform destroy cluster
+make status                # nodes, pods per namespace, API URL, ALB target health, cost reminder
+make cluster-down          # ⚠ terraform destroy cluster (Terraform owns the ALB, D-33)
 make images                # build + push injector and mock-system images (git SHA tag)
 make e2e-user              # ⚠ create or reset the e2e Cognito user (E2E_USERNAME, E2E_PASSWORD from the env; asks first)
 make users USERS_FILE=f    # invite Cognito users ("<username> <email>" per line); Cognito emails a temporary password
@@ -103,8 +103,8 @@ oncall-training-infra/
 ├── k8s/
 │   ├── base/                namespaces · rbac · networkpolicies · app/ (backend api, worker) · injector/ · mock/
 │   └── overlays/
-│       ├── aws/             ECR images, Ingress, config from Terraform outputs
-│       └── local/           kind: local images, no Ingress, LocalStack endpoints
+│       ├── aws/             ECR images, TargetGroupBinding, config from Terraform outputs
+│       └── local/           kind: local images, no ALB, LocalStack endpoints
 ├── services/
 │   ├── injector/            TypeScript: consumes `faults`, breaks the mock system
 │   └── mock-system/         TypeScript: one image, ROLE = gateway | orders | worker-svc

@@ -10,14 +10,15 @@ Items marked **(planned)** aren't built yet. Items marked **(cross-repo)** are u
 ```
 Browser ──► S3 site bucket: SPA on the website endpoint (HTTP)
    │        /auth/*.html on the S3 REST endpoint (HTTPS, Cognito bounce pages)
-   └──────► ALB :80 (HTTP, CORS, alb_ingress_cidrs) ──► pods
+   └──────► API Gateway HTTP API (HTTPS, CORS, JWT, throttling; foundation)
+              └─ VPC link ──► internal ALB :80 (private subnets) ──► backend-api pods
 
                          ┌──────────────────────────── foundation (always on) ───────────────────────────┐
-                         │ S3 site + files · DynamoDB Sessions · Cognito · SQS faults, user-actions.fifo │
+                         │ S3 site + files · DynamoDB · Cognito · HTTP API · SQS faults, user-actions    │
                          │ Step Functions "scenario" · Glue table + Athena workgroup · ECR ×3            │
                          └───────────────────────────────────────────────────────────────────────────────┘
                          ┌──────────────────────────── cluster (destroy when idle) ──────────────────────┐
-                         │ VPC (2 AZ) · public subnets: EKS nodes + ALB · private subnets: ElastiCache   │
+                         │ VPC (2 AZ) · public: EKS nodes · private: internal ALB, VPC link, ElastiCache │
                          │ EKS ── ns:app      backend-api ×2, backend-worker ×1                          │
                          │     ── ns:injector injector ×1                                                │
                          │     ── ns:mock     gateway ×1 → orders ×2 → worker-svc ×1                     │
@@ -48,8 +49,8 @@ Browser ──► S3 site bucket: SPA on the website endpoint (HTTP)
 
 - Backend: `backend "s3" { bucket, key, region = "us-east-1", use_lockfile = true, encrypt = true }`. Configured with `-backend-config=backend.hcl` (gitignored) so the account-specific bucket name isn't committed.
 - **Dependencies:**
-  - `cluster` reads `foundation` outputs through `terraform_remote_state` (queue URLs, table name, bucket names, Cognito IDs).
-  - `foundation` takes no input from the cluster. The SPA calls the ALB directly (D-31), so nothing in `foundation` depends on its DNS name.
+  - `cluster` finds what it needs from `foundation` by name with data sources: the HTTP API and the Cognito user pool and app client (D-33). No `terraform_remote_state`; postconditions say "run make foundation-apply first" when they're missing.
+  - `foundation` takes no input from the cluster. The browser calls the HTTP API, whose URL never changes; the routes into the VPC come from the cluster stack.
 - **Naming:** `local.name = "oncall-training"`. Globally unique names add the account id: `oncall-training-files-<acct>`. Every resource gets default tags through the provider:
   `Project=oncall-training`, `Owner=ian|jp`, `Env=lab`, `ManagedBy=terraform`, `Stack=foundation|cluster`.
 
@@ -66,24 +67,26 @@ Browser ──► S3 site bucket: SPA on the website endpoint (HTTP)
 | Glue **(planned)** | database `oncall_training`, table `session_events` | §10.2 |
 | Athena **(planned)** | workgroup `oncall-training` | Enforced output `s3://…files…/athena-results/`; `bytes_scanned_cutoff_per_query = 100 MB`; engine v3 |
 | Cognito | user pool `oncall-training` (`prevent_destroy`); no self sign-up, accounts from `make users` or `make e2e-user` (D-32); managed login (classic hosted UI, `managed_login_version = 1`) on domain `oncall-training-<acct>`; app client `oncall-training-spa`: public (no secret), authorization code grant, scopes `openid email profile`, access and ID tokens 60 min, refresh tokens 1 day; callback/logout URLs in §12 |
+| HTTP API | `oncall-training` (API Gateway v2, D-33): CORS for `site_url` and `http://localhost:5173`; stage `$default` (auto-deploy, throttling `api_throttle_rate`/`api_throttle_burst`, JSON access logs to `/aws/apigateway/oncall-training`, 7 days). Routes, VPC link and JWT authorizer come from the cluster stack. Output `api_url` |
 | ECR | `oncall-training/backend`, `oncall-training/injector`, `oncall-training/mock-system` | Immutable tags, scan on push, lifecycle: keep the last 15 images |
 
-**Outputs** (consumed by the cluster stack, scripts and other repos' CI variables): `account_id`, `sessions_table`, `files_bucket`, `faults_queue_url`, `faults_dlq_url`, `user_actions_queue_url`, `user_actions_dlq_url`, `ecr_repository_urls`, `state_machine_arn`. Added with the Cognito and site resources (D-31): `cognito_user_pool_id`, `cognito_client_id`, `cognito_authority`, `cognito_domain`, `site_bucket`, `site_url`, `site_https_origin`. Planned: `athena_workgroup`, `glue_database`.
+**Outputs** (consumed by the cluster stack, scripts and other repos' CI variables): `account_id`, `sessions_table`, `files_bucket`, `faults_queue_url`, `faults_dlq_url`, `user_actions_queue_url`, `user_actions_dlq_url`, `ecr_repository_urls`, `state_machine_arn`. Added with the Cognito and site resources (D-31): `cognito_user_pool_id`, `cognito_client_id`, `cognito_authority`, `cognito_domain`, `site_bucket`, `site_url`, `site_https_origin`. With the HTTP API (D-33): `api_id`, `api_url` (frontend `VITE_API_BASE_URL`). Planned: `athena_workgroup`, `glue_database`.
 
 ## 4. Cluster resources (`terraform/cluster`)
 
 | Resource | Settings |
 |---|---|
-| VPC | `10.20.0.0/16`, 2 AZs (`us-east-1a`, `us-east-1b`); public subnets `10.20.0.0/20`, `10.20.16.0/20` (map public IP, tagged `kubernetes.io/role/elb=1`); private subnets `10.20.128.0/24`, `10.20.129.0/24` (no route to the internet); IGW; **no NAT** |
+| VPC | `10.20.0.0/16`, 2 AZs picked by zone ID, never `use1-az3` (no VPC links or EKS there; `us-east-1a`/`1b` in Ian's account); public subnets `10.20.0.0/20`, `10.20.16.0/20` (map public IP, tagged `kubernetes.io/role/elb=1`); private subnets `10.20.128.0/24`, `10.20.129.0/24` (no route to the internet); IGW; **no NAT** |
 | EKS cluster | `oncall-training`; current EKS standard-support version (`var.kubernetes_version`); role = LabRole; `authentication_mode = "API"`; `bootstrap_cluster_creator_admin_permissions = false` (D-26); `upgrade_policy` STANDARD (never extended support); public endpoint; control-plane logging off (cost) |
 | Access entries | Cluster admin policy for the lab principal (`arn:aws:iam::<acct>:role/voclabs`, parsed from the caller ARN; the lab denies `iam:GetRole` on voclabs), so access survives credential rotation. The only entry: the automatic creator entry is off (D-26) |
 | Node group | `default`: **2× `t3.medium`**, `ON_DEMAND`, AL2023 x86_64, min 2 / desired 2 / max 3, public subnets, role = LabRole; launch template: IMDSv2 required, **`http_put_response_hop_limit = 2`** (so pods can use the node role), 20 GB gp3 |
 | Add-ons | `vpc-cni` with `{"enableNetworkPolicy": "true"}`, `coredns`, `kube-proxy` (versions pinned per EKS version) |
 | AWS Load Balancer Controller | `helm_release` (chart pinned) in `kube-system`; uses the node role (no service account annotation); `clusterName`, `region`, `vpcId` set explicitly |
-| ALB security group | `oncall-training-alb`, attached through Ingress annotations. Inbound 80 from `var.alb_ingress_cidrs`, default `0.0.0.0/0` (D-32): the browser calls the ALB directly (D-31) and every API route except health needs a Cognito token. A narrower list can go in the gitignored `cluster.auto.tfvars` |
+| Internal ALB | `oncall-training-api`, **created by Terraform** (D-33): internal, private subnets, HTTP:80 listener → IP target group `oncall-training-api` (port 3000, health check `/healthz`). The controller registers the pod IPs through the TargetGroupBinding (§5.1). SG `oncall-training-alb`: inbound 80 only from the VPC link SG; the EKS cluster SG allows 3000 from it |
+| API Gateway (cluster half) | VPC link `oncall-training` in the private subnets (SG `oncall-training-vpc-link`, egress 80 to the ALB only); JWT authorizer `cognito` (issuer = the user pool, audience = the SPA client id); `HTTP_PROXY` integration to the listener (30 s timeout); routes `ANY /api/{proxy+}` (JWT), `OPTIONS /api/{proxy+}` and `GET /healthz` (no auth) |
 | ElastiCache | Replication group `oncall-training`, engine **Valkey** (`valkey_version`, default 8.0), `cache_node_type` (default `cache.t3.micro`; INF-066 confirms the smallest the lab allows), 1 node, private subnets, TLS in transit and at rest, no AUTH token; SG `oncall-training-redis` allows 6379 only from the EKS cluster security group (the nodes and therefore every pod) |
 
-**Outputs:** `cluster_name`, `cluster_endpoint`, `vpc_id`, `vpc_cidr`, `alb_security_group_id`, `redis_endpoint` (`rediss://<host>:6379`; `render-config.sh` writes it as `REDIS_URL`).
+**Outputs:** `cluster_name`, `cluster_endpoint`, `vpc_id`, `vpc_cidr`, `api_target_group_arn` (for the TargetGroupBinding), `redis_endpoint` (`rediss://<host>:6379`; `render-config.sh` writes it as `REDIS_URL`).
 
 The private subnets (`10.20.128.0/24`, `10.20.129.0/24`) hold only ElastiCache; their route table has no internet route.
 
@@ -102,12 +105,7 @@ The private subnets (`10.20.128.0/24`, `10.20.129.0/24`) hold only ElastiCache; 
 
 - Every container: requests (`50m`/`64Mi` for mock, `100m`/`128Mi` for the others), memory limits, `runAsNonRoot`, `readOnlyRootFilesystem: true` (writable `emptyDir` at `/tmp`), `allowPrivilegeEscalation: false`, all capabilities dropped.
 - Services: ClusterIP for `backend-api` (80 → 3000) and each mock service (8080). The DNS names `gateway.mock.svc.cluster.local` etc. are part of the backend's `MOCK_HEALTH_URL_TEMPLATE` (cross-repo).
-- **Ingress** (aws overlay only): `backend-api` with `ingressClassName: alb` and these annotations:
-  - `scheme: internet-facing`, `target-type: ip`
-  - `load-balancer-name: oncall-training-api` (fixed name, so the scripts can find it)
-  - `healthcheck-path: /healthz`
-  - `security-groups: <alb_security_group_id>`, `manage-backend-security-group-rules: "true"`
-  - listener HTTP 80
+- **TargetGroupBinding** (aws overlay only, D-33): `backend-api` binds Service `backend-api` port `http` to the Terraform target group (`targetType: ip`, `targetGroupARN` from `cluster.env`). No `networking` block: the security group rules are in Terraform. There is no Ingress, so the controller owns no AWS resources. Its schema for `make k8s-validate` is `k8s/schemas/targetgroupbinding-elbv2-v1beta1.json`.
 
 ### 5.2 Service accounts and RBAC (cross-repo with backend ARCHITECTURE §8.6)
 
@@ -141,10 +139,10 @@ Egress isn't restricted (pods need AWS APIs, Redis and the Kubernetes API). The 
 ### 5.4 Configuration
 
 - `scripts/render-config.sh` reads the foundation and cluster outputs and writes `k8s/overlays/aws/config.env` (gitignored). Kustomize's `configMapGenerator` turns it into ConfigMap `oncall-config` in `app` and `injector`. The hash suffix triggers a rollout when it changes.
-- It also writes `k8s/overlays/aws/cluster.env` (gitignored): `ECR_REGISTRY` and `ALB_SECURITY_GROUP_ID`. With the committed `images.env` (`MOCK_TAG`, `INJECTOR_TAG`, `BACKEND_TAG`), Kustomize `replacements` turn the base images `registry.invalid/oncall-training/<repo>:unset` into ECR images and set the Ingress security group (D-27). `*.env.example` files show the keys; `make k8s-validate` uses them when the real files don't exist.
+- It also writes `k8s/overlays/aws/cluster.env` (gitignored): `ECR_REGISTRY` and `API_TARGET_GROUP_ARN`. With the committed `images.env` (`MOCK_TAG`, `INJECTOR_TAG`, `BACKEND_TAG`), Kustomize `replacements` turn the base images `registry.invalid/oncall-training/<repo>:unset` into ECR images and set the TargetGroupBinding's target group (D-27, D-33). `*.env.example` files show the keys; `make k8s-validate` uses them when the real files don't exist.
 - The images run as the `node` user; pods set `runAsUser: 1000` so the kubelet can verify `runAsNonRoot`.
 - Backend variables (names match backend ARCHITECTURE §9): `AWS_REGION`, `SESSIONS_TABLE`, `FILES_BUCKET`, `USER_ACTIONS_QUEUE_URL`, `STATE_MACHINE_ARN`, `ATHENA_WORKGROUP`, `ATHENA_DATABASE`, `REDIS_URL` (`rediss://…`), `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `MOCK_NAMESPACE=mock`, `MOCK_HEALTH_URL_TEMPLATE=http://{service}.mock.svc.cluster.local:8080/health`, `MOCK_CLUSTER=kubernetes`. No `STATS_MODE`: stats come from DynamoDB (backend D-36).
-- Auth and CORS (D-31): with the foundation's Cognito outputs, `render-config.sh` writes `AUTH_MODE=cognito`, `COGNITO_USER_POOL_ID` and `COGNITO_CLIENT_ID`; without them, `AUTH_MODE=dev` and `ALLOW_DEV_AUTH=true`. `CORS_ORIGINS` is the `site_url` output (the SPA's website origin; backend D-35).
+- Auth and CORS (D-31): with the foundation's Cognito outputs, `render-config.sh` writes `AUTH_MODE=cognito`, `COGNITO_USER_POOL_ID` and `COGNITO_CLIENT_ID`; without them, `AUTH_MODE=dev` and `ALLOW_DEV_AUTH=true`. No `CORS_ORIGINS`: the HTTP API answers CORS for `site_url` and ignores the backend's CORS headers (D-33). The JWT authorizer only accepts Cognito tokens, so dev auth can't reach the API through API Gateway.
 - Injector variables: `AWS_REGION`, `FAULTS_QUEUE_URL`, `SESSIONS_TABLE`, `REDIS_URL`, `MOCK_NAMESPACE=mock`.
 - No Kubernetes Secrets are needed (no passwords; AWS credentials come from the node).
 
@@ -299,10 +297,11 @@ No CDN. The browser uses three paths:
 |---|---|---|---|
 | SPA | `site_url` (S3 website endpoint) | HTTP | Website hosting; `index.html` is also the error document, so deep links load the SPA |
 | Cognito bounce pages | `site_https_origin` + `/auth/callback.html`, `/auth/signed-out.html` | HTTPS | S3 REST endpoint; they forward the code and state to the SPA on `site_url` |
-| API | ALB `oncall-training-api`, `/api/...` | HTTP, port 80 | Called directly from the browser; the backend allows `site_url` in `CORS_ORIGINS` (backend D-35) |
+| API | `api_url` (HTTP API, `https://<id>.execute-api.us-east-1.amazonaws.com`), `/api/...` | HTTPS | CORS for `site_url` and `http://localhost:5173`; JWT authorizer; throttling `api_throttle_rate`/`api_throttle_burst` (20/40 by default); access logs in `/aws/apigateway/oncall-training` (7 days) |
 
-- The ALB accepts `alb_ingress_cidrs` (§4), everyone by default (D-32); the API itself requires a Cognito token. The site bucket allows public read only.
-- The ALB's DNS name changes on every `cluster-up`, so the browser's API address changes with it, and the API is unreachable while the cluster is down.
+- API Gateway → VPC link → internal ALB → pods. The ALB has no public IPs and accepts only the VPC link (D-33). The site bucket allows public read only.
+- `api_url` never changes. While the cluster is down the API has no routes and answers 404.
+- Requests without a valid Cognito access token get 401 from API Gateway; the backend validates every token again.
 - CloudFront with ACM would add HTTPS and one domain. It's a future improvement (F-03, D-31).
 
 ## 12. Cognito
@@ -329,13 +328,12 @@ No CDN. The browser uses three paths:
 2. `aws eks update-kubeconfig --name oncall-training`.
 3. `scripts/render-config.sh` → `k8s/overlays/aws/config.env`.
 4. `kustomize build k8s/overlays/aws | kubectl apply -f -` with the current image tags (`k8s/overlays/aws/images.env`).
-5. Wait for ALB `oncall-training-api` to get its DNS name (`make status`). The SPA calls it directly, so no other stack changes.
+5. The controller registers the backend-api pods in the target group; `make status` shows the target health and `curl <api_url>/healthz` checks the whole path. Nothing else changes: the API URL is the same as last time.
 6. `make status`.
 
 ### 13.3 `make cluster-down`
-1. `kubectl delete ingress -n app backend-api` and **wait until the ALB is gone** (otherwise the controller-created ALB and its security group rules block the VPC destroy and keep billing).
-2. `terraform -chdir=terraform/cluster destroy`.
-3. Print a reminder that foundation stays up.
+1. `terraform -chdir=terraform/cluster destroy`. Terraform owns the ALB, so nothing is left behind (D-33 replaces D-20).
+2. Print a reminder that foundation stays up.
 
 ### 13.4 Deploying images
 - **Backend:** its release workflow pushes `oncall-training/backend:<sha>`. To roll it out, run `make deploy BACKEND_TAG=<sha>` (a `deploy.yml` workflow with the same input is planned). It updates `images.env` (committed, so the running versions are visible in git), re-applies the overlay and waits for `kubectl rollout status`.
@@ -348,11 +346,12 @@ No CDN. The browser uses three paths:
 |---|---|---|
 | EKS control plane | $0.10 | cluster |
 | 2× t3.medium | $0.083 | cluster |
-| ALB (idle + minimal LCU) | $0.025 | cluster |
+| Internal ALB (idle + minimal LCU) | $0.025 | cluster |
 | ElastiCache cache.t3.micro | $0.017 | cluster |
-| Public IPv4 addresses (2 nodes + 2 ALB) | $0.02 | cluster |
+| Public IPv4 addresses (2 nodes; the ALB is internal) | $0.01 | cluster |
 | **Cluster total** | **≈ $0.25/h (≈ $6/day if left up)** | |
 | S3, DynamoDB on-demand, SQS, Step Functions, Cognito, ECR storage, Athena | cents per day at our usage | foundation |
+| HTTP API ($1 per million requests; about 3,600 per hour per polling user), VPC link (free) | under $0.01/h per active user | foundation / cluster |
 
 ## 14. Local (kind)
 
@@ -380,9 +379,9 @@ What runs today, until the planned services above are in place (DECISIONS D-25).
 | `PersistResolved` / `MarkFailed` write the end state; `SESSION_ENDED` triggers the reset | The backend worker writes `RESOLVED` / `FAILED` and resets the mock system |
 | ElastiCache: lock, dashboard snapshots, event buffer | None. One demo user; the api builds the dashboard on each request |
 | Cognito | `AUTH_MODE=cognito` (`render-config.sh` writes it from the foundation outputs); `AUTH_MODE=dev` with `ALLOW_DEV_AUTH=true` only when they're missing. Frontend: `VITE_AUTH_MODE=dev` today |
-| Browser → ALB directly, with CORS (§11, D-31) | The SPA's Vite dev proxy → ALB (`API_PROXY_TARGET`, frontend D-18); the ALB allows `var.alb_ingress_cidrs` (everyone by default, D-32) |
+| Browser → HTTP API → internal ALB (§11, D-33) | The SPA's Vite dev proxy → ALB (`API_PROXY_TARGET`, frontend D-18) |
 
-- **Config:** the backend gets `ORCHESTRATION_MODE=direct` and `FAULTS_QUEUE_URL`, plus the auth switch and `CORS_ORIGINS` of §5.4. `REDIS_URL` (backend and injector) appears once the cluster stack with ElastiCache is applied: `render-config.sh` writes it from `redis_endpoint`, and both services then switch to the Redis lock, event log and snapshots.
+- **Config:** the backend gets `ORCHESTRATION_MODE=direct` and `FAULTS_QUEUE_URL`, plus the auth switch of §5.4. `REDIS_URL` (backend and injector) appears once the cluster stack with ElastiCache is applied: `render-config.sh` writes it from `redis_endpoint`, and both services then switch to the Redis lock, event log and snapshots.
 - The api needs `sqs:SendMessage` on `faults`; LabRole allows it.
 - Step Functions is deployed but not used yet: `render-config` writes `STATE_MACHINE_ARN`, and `ORCHESTRATION_MODE=stepfunctions make render-config` switches the backend once it handles `AWAIT_FIX`.
 - Not deployed yet: ElastiCache, Cognito, the site bucket and NetworkPolicies.

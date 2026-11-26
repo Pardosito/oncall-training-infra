@@ -121,9 +121,8 @@ cluster-up: cluster-plan ## ⚠ Create the cluster, render config, apply k8s/ove
 	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/status.sh
 
 .PHONY: cluster-down
-cluster-down: check-creds ## ⚠ Delete the Ingress (ALB), wait, then destroy the cluster stack
-	$(call confirm,This destroys the cluster stack. Foundation (data, users, images) stays up.)
-	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/cluster-down-wait.sh
+cluster-down: check-creds ## ⚠ Destroy the cluster stack (Terraform owns the ALB, D-33)
+	$(call confirm,This destroys the cluster stack. Foundation (data, users, images, the API URL) stays up.)
 	$(call tf_init,cluster)
 	@$(TF_CLUSTER) destroy -input=false -auto-approve
 	@echo "Cluster destroyed. Foundation stays up (cents per day)."
@@ -141,7 +140,9 @@ deploy: check-creds ## ⚠ Roll out images: make deploy [BACKEND_TAG=<sha>] [INJ
 	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/deploy.sh BACKEND_TAG=$(BACKEND_TAG) INJECTOR_TAG=$(INJECTOR_TAG) MOCK_TAG=$(MOCK_TAG)
 
 .PHONY: status
-status: check-creds ## Nodes, pods per namespace, ALB DNS, image tags, cost reminder
+status: check-creds ## Nodes, pods per namespace, API URL, ALB targets, image tags, cost reminder
+	$(call tf_init,foundation)
+	$(call tf_init,cluster)
 	@CLUSTER_NAME=$(CLUSTER_NAME) scripts/status.sh
 
 .PHONY: check-rbac

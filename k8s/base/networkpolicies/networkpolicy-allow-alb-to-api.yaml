@@ -1,6 +1,6 @@
-# ARCHITECTURE §5.3: the ALB uses IP targets, so its traffic reaches the backend-api pods
-# directly from the ALB's ENIs, which have addresses in the VPC CIDR (terraform/cluster
-# locals.tf vpc_cidr). The ALB security group already limits who can reach the ALB.
+# ARCHITECTURE §5.3: the internal ALB uses IP targets, so its traffic reaches the backend-api
+# pods directly from the ALB's ENIs, which have addresses in the VPC CIDR (terraform/cluster
+# locals.tf vpc_cidr). Only the API Gateway VPC link can reach the ALB (D-33).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

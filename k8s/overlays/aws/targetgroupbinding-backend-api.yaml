@@ -1,0 +1,19 @@
+# Registers the backend-api pod IPs in the internal ALB's target group (D-33, ARCHITECTURE §5.1).
+# Terraform owns the ALB, listener and target group; the AWS Load Balancer Controller only keeps
+# the target list in sync with the pods. No `networking` block: the security group rules are in
+# Terraform too (terraform/cluster/alb.tf).
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: backend-api
+  namespace: app
+  labels:
+    app.kubernetes.io/name: backend-api
+    app.kubernetes.io/component: api
+spec:
+  serviceRef:
+    name: backend-api
+    port: http
+  targetType: ip
+  # Filled from cluster.env (terraform output api_target_group_arn).
+  targetGroupARN: set-by-cluster-env

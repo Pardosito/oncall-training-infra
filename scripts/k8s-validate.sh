@@ -7,10 +7,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 K8S_VERSION="${K8S_VERSION:-1.35.0}"
 SCHEMA_DIR=".cache/kubeconform/v${K8S_VERSION}-standalone-strict"
-KINDS="namespace-v1 serviceaccount-v1 role-rbac-v1 rolebinding-rbac-v1 deployment-apps-v1 service-v1 configmap-v1 ingress-networking-v1 networkpolicy-networking-v1"
+KINDS="namespace-v1 serviceaccount-v1 role-rbac-v1 rolebinding-rbac-v1 deployment-apps-v1 service-v1 configmap-v1 networkpolicy-networking-v1"
 
 # Fetch the schemas with curl into a local cache: kubeconform's own Go resolver times out on
 # some networks (it ignores the macOS resolver). Kinds not listed here fail as "missing schema".
+# CRDs (TargetGroupBinding, D-33) have hand-written schemas in k8s/schemas/.
 mkdir -p "$SCHEMA_DIR"
 for kind in $KINDS; do
   [ -s "$SCHEMA_DIR/$kind.json" ] && continue
@@ -21,7 +22,8 @@ done
 validate() {
   echo "== $1" >&2
   kustomize build "$1" | kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" \
-    -schema-location ".cache/kubeconform/{{ .NormalizedKubernetesVersion }}-standalone{{ .StrictSuffix }}/{{ .ResourceKind }}{{ .KindSuffix }}.json"
+    -schema-location ".cache/kubeconform/{{ .NormalizedKubernetesVersion }}-standalone{{ .StrictSuffix }}/{{ .ResourceKind }}{{ .KindSuffix }}.json" \
+    -schema-location "k8s/schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json"
 }
 
 validate k8s/base

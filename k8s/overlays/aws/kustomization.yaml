@@ -1,13 +1,13 @@
 # EKS overlay (ARCHITECTURE §5). Inputs:
 #   images.env   committed   image tags (git SHAs); `make deploy` updates it
-#   cluster.env  gitignored  ECR_REGISTRY, ALB_SECURITY_GROUP_ID   (scripts/render-config.sh)
+#   cluster.env  gitignored  ECR_REGISTRY, API_TARGET_GROUP_ARN   (scripts/render-config.sh)
 #   config.env   gitignored  ConfigMap oncall-config for app + injector (scripts/render-config.sh)
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
   - ../../base
-  - ingress-backend-api.yaml
+  - targetgroupbinding-backend-api.yaml
   # NetworkPolicies: add `- ../../base/networkpolicies` once INF-067 passes on EKS (O-04).
 
 configMapGenerator:
@@ -54,8 +54,7 @@ replacements:
       - select: { kind: Deployment }
         fieldPaths: [spec.template.spec.containers.*.image]
         options: { delimiter: "/", index: 0 }
-  - source: { kind: ConfigMap, name: cluster-values, fieldPath: data.ALB_SECURITY_GROUP_ID }
+  - source: { kind: ConfigMap, name: cluster-values, fieldPath: data.API_TARGET_GROUP_ARN }
     targets:
-      - select: { kind: Ingress, name: backend-api }
-        fieldPaths:
-          - "metadata.annotations.[alb.ingress.kubernetes.io/security-groups]"
+      - select: { kind: TargetGroupBinding, name: backend-api }
+        fieldPaths: [spec.targetGroupARN]
