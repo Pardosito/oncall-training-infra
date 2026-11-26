@@ -26,7 +26,7 @@ Un usuario inicia el escenario `orders-down`. El backend guarda la sesión en Dy
 
 ![Diagrama de la solución](docs/solucion.png)
 
-Verde: desplegado. Amarillo: creado, aún sin usar. Gris punteado: planeado para la entrega final. Fuente editable en [`docs/solucion.mmd`](docs/solucion.mmd) (`make diagram`).
+Verde: desplegado. Gris punteado: planeado para la entrega final. Fuente editable en [`docs/solucion.mmd`](docs/solucion.mmd) (`make diagram`).
 
 ### Repositorios
 

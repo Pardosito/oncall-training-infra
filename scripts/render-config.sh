@@ -40,8 +40,8 @@ done
 cognito_user_pool_id="$(get "$foundation" cognito_user_pool_id)"
 cognito_client_id="$(get "$foundation" cognito_client_id)"
 state_machine_arn="$(get "$foundation" state_machine_arn)"
-# direct until the backend handles AWAIT_FIX (ARCHITECTURE §15); ORCHESTRATION_MODE=stepfunctions switches.
-orchestration_mode="${ORCHESTRATION_MODE:-direct}"
+# Step Functions runs the scenario (backend D-32); ORCHESTRATION_MODE=direct falls back to the MVP path (§15).
+orchestration_mode="${ORCHESTRATION_MODE:-stepfunctions}"
 case "$orchestration_mode" in
   direct) ;;
   stepfunctions)
