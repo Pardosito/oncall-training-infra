@@ -19,3 +19,15 @@ variable "ecr_keep_images" {
     error_message = "ecr_keep_images must be between 5 and 100."
   }
 }
+
+variable "api_throttle_rate" {
+  type        = number
+  description = "Steady requests per second the HTTP API accepts across all users (D-33)."
+  default     = 20
+}
+
+variable "api_throttle_burst" {
+  type        = number
+  description = "Burst of requests the HTTP API accepts above the steady rate (D-33)."
+  default     = 40
+}

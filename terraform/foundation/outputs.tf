@@ -72,11 +72,21 @@ output "site_bucket" {
 }
 
 output "site_url" {
-  description = "Where users open the app: the S3 website endpoint (HTTP, D-31). Also the backend CORS_ORIGINS."
+  description = "Where users open the app: the S3 website endpoint (HTTP, D-31). Allowed in the HTTP API CORS (D-33)."
   value       = local.site_website_url
 }
 
 output "site_https_origin" {
   description = "HTTPS origin of the site bucket; serves the Cognito bounce pages under /auth/ (D-31)."
   value       = local.site_https_origin
+}
+
+output "api_id" {
+  description = "HTTP API id; the cluster stack looks the API up by name and adds its routes (D-33)."
+  value       = aws_apigatewayv2_api.this.id
+}
+
+output "api_url" {
+  description = "HTTPS base URL of the backend api (frontend VITE_API_BASE_URL, D-33). Stable across cluster-down/up."
+  value       = aws_apigatewayv2_api.this.api_endpoint
 }

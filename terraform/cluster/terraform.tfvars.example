@@ -1,9 +1,7 @@
 # Copy to cluster.auto.tfvars (gitignored) and adjust.
 owner = "ian"
 
-# The ALB is open to everyone by default (D-32). To limit it to some public IPs
-# (curl -s https://checkip.amazonaws.com):
-# alb_ingress_cidrs = ["203.0.113.7/32", "198.51.100.9/32"]
+# No ALB allowlist: the ALB is internal and only API Gateway reaches it (D-33).
 
 # kubernetes_version = "1.35"   # aws eks describe-cluster-versions --default-only
 # node_instance_type = "t3.medium"

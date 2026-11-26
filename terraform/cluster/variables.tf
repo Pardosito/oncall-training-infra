@@ -42,17 +42,6 @@ variable "node_count" {
   }
 }
 
-variable "alb_ingress_cidrs" {
-  type        = list(string)
-  description = "Who can reach the ALB on port 80. Open by default (D-32): the API rejects requests without a Cognito token and only admins create accounts. Narrow it to e.g. [\"203.0.113.7/32\"] in cluster.auto.tfvars if needed."
-  default     = ["0.0.0.0/0"]
-
-  validation {
-    condition     = alltrue([for c in var.alb_ingress_cidrs : can(cidrhost(c, 0))])
-    error_message = "Every alb_ingress_cidrs entry must be a valid CIDR."
-  }
-}
-
 variable "cache_node_type" {
   type        = string
   description = "ElastiCache node type. The smallest the lab allows (INF-066); cache.t3.micro is in the lab's allowed list."

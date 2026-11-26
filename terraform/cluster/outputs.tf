@@ -20,9 +20,9 @@ output "vpc_cidr" {
   value       = aws_vpc.this.cidr_block
 }
 
-output "alb_security_group_id" {
-  description = "Security group for the backend-api ALB (Ingress annotation)."
-  value       = aws_security_group.alb.id
+output "api_target_group_arn" {
+  description = "Target group of the internal ALB; the TargetGroupBinding registers the backend-api pods in it (D-33)."
+  value       = aws_lb_target_group.api.arn
 }
 
 output "redis_endpoint" {

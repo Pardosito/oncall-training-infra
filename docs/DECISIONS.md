@@ -17,7 +17,7 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-01 | 2026-10-22 | The infra repo owns Terraform, all k8s manifests, the state machine, the injector and the mock system | Decided |
 | D-02 | 2026-10-22 | Two Terraform stacks (`foundation`, `cluster`) + `bootstrap`; S3 state with native lock file | Decided |
 | D-03 | 2026-10-22 | `LabRole` for every role; plain EKS resources instead of the community EKS module | Decided (forced by Learner Lab) |
-| D-04 | 2026-10-22 | Nodes and ALB in public subnets, no NAT; ElastiCache in private subnets | Decided |
+| D-04 | 2026-10-22 | Nodes and ALB in public subnets, no NAT; ElastiCache in private subnets | Decided (the ALB moved to the private subnets, D-33) |
 | D-05 | 2026-10-22 | EKS managed node group: 2× t3.medium On-Demand, IMDS hop limit 2, access entries | Decided |
 | D-06 | 2026-10-22 | NetworkPolicies enforced by the Amazon VPC CNI | Decided |
 | D-07 | 2026-10-22 | AWS Load Balancer Controller → ALB, ALB restricted to CloudFront's prefix list | Superseded by D-31 |
@@ -33,7 +33,7 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-17 | 2026-10-22 | Mock system: `gateway → orders → worker-svc`, probes on `/ping`, `/health` reflects downstream | Decided |
 | D-18 | 2026-10-22 | Image rollouts happen from this repo (`make deploy` / `deploy.yml`), tags pinned in `images.env` | Decided (answers backend O-03) |
 | D-19 | 2026-10-22 | Lifecycle through a Makefile; GitHub workflows call the same targets; Learner Lab credentials as secrets | Decided |
-| D-20 | 2026-10-22 | `cluster-down` deletes the Ingress and waits for the ALB before `terraform destroy` | Decided |
+| D-20 | 2026-10-22 | `cluster-down` deletes the Ingress and waits for the ALB before `terraform destroy` | Superseded by D-33 (Terraform owns the ALB) |
 | D-21 | 2026-10-22 | Glue table with partition projection; Athena workgroup with a 100 MB scan limit | Decided |
 | D-22 | 2026-10-22 | The e2e Cognito user is created by a script, not Terraform | Decided (answers frontend O-04) |
 | D-23 | 2026-10-22 | Docs written in English | Decided |
@@ -41,11 +41,12 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-25 | 2026-10-27 | Nov 5 MVP: one incident loop on EKS without Step Functions, ElastiCache, Cognito or CloudFront | Decided (temporary until Nov 19) |
 | D-26 | 2026-11-01 | EKS access: one explicit access entry for the lab role; no automatic creator entry | Decided |
 | D-27 | 2026-11-01 | Image tags and account-specific values reach the aws overlay through Kustomize replacements | Decided |
-| D-28 | 2026-11-05 | No API Gateway: CloudFront is the edge, the ALB routes to the pods | Decided (CloudFront edge superseded by D-31) |
+| D-28 | 2026-11-05 | No API Gateway: CloudFront is the edge, the ALB routes to the pods | Superseded by D-33 |
 | D-29 | 2026-11-21 | State machine error handling: retry only idempotent sends and writes, never `WaitForFix` or a failed condition; every path still sends `SESSION_ENDED` | Decided |
 | D-30 | 2026-11-21 | kind: the backend runs on the host, the injector reaches LocalStack through `host.docker.internal`; Calico uses pod range `10.244.0.0/16` | Decided |
 | D-31 | 2026-11-25 | No CloudFront: SPA on the S3 website endpoint, Cognito callbacks through HTTPS bounce pages on the same bucket, API on the ALB with CORS | Decided (replaces D-07/D-08 for the final delivery) |
-| D-32 | 2026-11-25 | ALB open to `0.0.0.0/0` on port 80; Cognito accounts created by admins only (`make users`), no self sign-up | Decided |
+| D-32 | 2026-11-25 | ALB open to `0.0.0.0/0` on port 80; Cognito accounts created by admins only (`make users`), no self sign-up | Decided (open ALB superseded by D-33; admin-created accounts stay) |
+| D-33 | 2026-11-26 | API Gateway HTTP API (foundation, stable HTTPS URL, JWT, throttling, CORS) → VPC link → internal ALB owned by Terraform; pods registered with a TargetGroupBinding | Decided |
 
 ---
 
@@ -123,6 +124,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 **Why:** make targets give fast feedback from a laptop with fresh lab credentials. Workflows calling the same targets make runs reproducible and visible to both teammates. Learner Lab credentials must be pasted into GitHub secrets each session (`make creds` automates that), because GitHub OIDC needs IAM resources we can't create.
 
 ### D-20 · Delete the Ingress before destroying the cluster
+**Superseded by D-33:** Terraform creates the ALB, so `cluster-down` is a plain destroy. On 2026-11-25 the old flow hung for good: the node group had no nodes, so the controller couldn't remove the ALB and it had to be deleted by hand.
 **Why:** the ALB is created by the controller, not by Terraform. If the cluster is destroyed first, the ALB and its security group rules are orphaned. They keep billing, and they block the VPC from being deleted.
 
 ### D-21 · Partition projection and scan limit
@@ -162,7 +164,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 
 
 ### D-28 · No API Gateway
-**Superseded in part by D-31:** CloudFront is no longer the edge; the browser calls the ALB directly with CORS. The rest of this decision (no API Gateway) still holds.
+**Superseded by D-33.** D-31 removed CloudFront, the edge this decision relied on, and D-33 adds an HTTP API in front of an internal ALB.
 **Why:** an ALB and API Gateway overlap only at the edges (TLS, path routing, basic auth). The ALB is a load balancer: it routes to the pods, health-checks them and integrates with Kubernetes through the Ingress. API Gateway is an API management product: API keys, usage plans, per-client throttling, request validation, authorizers. Our requirements (one SPA client, one backend, the API on the same domain as the SPA, HTTPS, the ALB reachable only from CloudFront) are covered by CloudFront (edge, HTTPS, one domain, no CORS), the ALB (routing, health checks) and the backend (Cognito token validation).
 **Not interchangeable:** API Gateway can't reach pods inside the VPC by itself; it needs a VPC Link to a load balancer. On EKS it would sit in front of the ALB, not replace it, adding a hop (CloudFront → API Gateway → VPC Link → ALB → pod), per-request cost, a 29 s default integration timeout on REST APIs, and a second place for routing rules.
 **When to revisit:** several API consumers (partners, mobile apps) needing keys, quotas or usage tracking; a monetized or rate-limited public API; Lambda backends; one facade with uniform policies over many services. On Kubernetes, also weigh an in-cluster gateway (Envoy Gateway, Kong, the Gateway API).
@@ -183,9 +185,23 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 **Trade-off:** no HTTPS for the app or the API, and no PKCE: an authorization code or token on the network could be read. Acceptable for a lab demo; CloudFront + ACM (F-03) removes it.
 
 ### D-32 · Open ALB, admin-created accounts
+**Superseded in part by D-33:** the ALB is internal again, reachable only through API Gateway. Admin-created accounts and `make users` stay.
 **Why:** with no CloudFront (D-31) the browser calls the ALB directly, so an IP allowlist meant a `cluster` apply for every new user and network. The allowlist added little: every API route except `/health` already rejects requests without a valid Cognito access token.
 **How:** `alb_ingress_cidrs` defaults to `["0.0.0.0/0"]` (it can still be narrowed in `cluster.auto.tfvars`). Self sign-up is off (`allow_admin_create_user_only`), so a stranger who finds the URL can't create an account and hold the global session lock. `make users USERS_FILE=…` invites each `<username> <email>` line; Cognito emails a temporary password.
 **Trade-off:** the ALB is scanned like any public endpoint, and the health routes are public. Checkov flags the open port 80 (CKV_AWS_260); expected.
+
+### D-33 · API Gateway HTTP API in front of an internal ALB
+**Why:** with no CloudFront (D-31) the browser called the ALB over HTTP at an address that changed on every `cluster-up`, and the ALB had to be open to the internet (D-32). D-28's "when to revisit" no longer held once CloudFront was gone.
+**How:**
+- **foundation:** HTTP API `oncall-training` with CORS for the site, stage `$default` with throttling (20 req/s, burst 40) and access logs. Its URL (`api_url`) never changes, so the frontend is built once. It costs per request only.
+- **cluster:** a VPC link in the private subnets, a Cognito JWT authorizer (rejects missing or bad tokens before the cluster), an `HTTP_PROXY` integration to an **internal ALB that Terraform creates**, and routes `GET|POST|PUT|PATCH|DELETE /api/{proxy+}` (JWT) and `GET /healthz`. No `ANY` or `OPTIONS` route: preflights match nothing, so API Gateway answers them itself (`ANY` ran the JWT authorizer on preflights and returned 401, found in the lab).
+- The AWS Load Balancer Controller only registers the backend-api pods in Terraform's target group through a `TargetGroupBinding`; there is no Ingress. `cluster-down` is a plain `terraform destroy` (replaces D-20).
+- Zones are chosen by zone ID and skip `use1-az3`, where VPC links aren't offered (found in the 2026-11-26 spike; zone names map differently in each account).
+- CORS lives in API Gateway only; the backend's `CORS_ORIGINS` stays unset (API Gateway ignores CORS headers from the integration).
+**Verified in the lab (2026-11-26):** on EKS, `/healthz` 200 through the whole chain; 401 without or with a bad token, 200 with a Cognito token; a 400-request burst got 113 × 429; CORS preflight 204 for the site and no allow-origin for other origins; a full incident (start → fault → fix → RESOLVED) through the API; the ALB is internal and the TargetGroupBinding registered both pods as healthy. Spike before that: HTTP API, VPC link (`AVAILABLE` in about 2 min), stage throttling and a JWT authorizer against our pool (401 without a token or with a bad one) all work with the lab role.
+**Cost:** HTTP API $1 per million requests (about $0.004/h per polling user); VPC links for HTTP APIs are free; the ALB costs the same, minus its two public IPv4 addresses (about $0.01/h less).
+**Trade-offs:** another hop (API Gateway → VPC link → ALB → pod) and a 30 s integration timeout (we have no long requests). Throttling is per stage and route, not per user (that would need a REST API with usage plans). The SPA itself is still HTTP on S3, so PKCE stays off until the site moves behind HTTPS too (D-33 phase 4, or F-03).
+**Rejected:** a public ALB with a secret header from API Gateway (not needed since VPC links work in the lab); keeping the Ingress-managed ALB and updating the integration after each `cluster-up` (an extra step and the D-20 cleanup problem).
 
 ---
 
@@ -194,19 +210,19 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 | ID | Limitation | Impact | Mitigation now |
 |---|---|---|---|
 | L-01 | No per-workload IAM (all pods use LabRole) | Any pod can call any AWS API LabRole allows | Namespaces, RBAC, NetworkPolicies; only our images run in the cluster |
-| L-02 | No CDN: the SPA is served over HTTP from the S3 website endpoint, and the browser calls the ALB over HTTP; the ALB's DNS name changes on every `cluster-up` | Login codes and tokens travel unencrypted (see L-14); `/api` is unreachable while the cluster is down, and the API's address changes with each `cluster-up` | ALB limited to `alb_ingress_cidrs`; `make status` prints the ALB DNS name; the Cognito pages stay on HTTPS |
+| L-02 | No CDN: the SPA is served over HTTP from the S3 website endpoint | Login codes travel unencrypted to the SPA (see L-14); `/api` answers 404 while the cluster is down | The API itself is HTTPS at a fixed URL (D-33); `make status` shows its health |
 | L-03 | Nodes in public subnets, no NAT | Not production practice | Tight security groups; no SSH; IMDSv2 required |
 | L-04 | `cluster-up` takes about 20 min | Slow start to each work session | Develop on kind + LocalStack; bring EKS up only to integrate or demo |
 | L-05 | Single ElastiCache node, single worker, single injector | No failover; a restart pauses sessions for seconds | Kubernetes restarts pods; backend tolerates a Redis restart (backend L-03/L-04) |
 | L-06 | Lab credentials expire each session | Workflows fail until `make creds` runs | The credential check gives a clear error |
 | L-07 | Lab budget is finite; the cluster costs about $6/day if left up | Risk of losing the account | `make cluster-down` routine; budget check at session start |
 | L-08 | State bucket and shared environment exist only in Ian's lab account | JP can't apply to the shared environment | JP can stand up a personal copy with the same code in his lab |
-| L-09 | No custom domain or certificate | URLs are `*.s3-website-us-east-1.amazonaws.com` (HTTP) and `*.s3.us-east-1.amazonaws.com` (Cognito pages) | Fine for the course; CloudFront + ACM is F-03 |
+| L-09 | No custom domain or certificate | URLs are `*.s3-website-us-east-1.amazonaws.com` (HTTP), `*.s3.us-east-1.amazonaws.com` (Cognito pages) and `*.execute-api.us-east-1.amazonaws.com` (API, HTTPS) | Fine for the course; CloudFront + ACM is F-03 |
 | L-10 | No metrics or alerting stack | Debugging relies on `kubectl logs` and CloudWatch (Step Functions) | `make status`; JSON logs |
 | L-11 | kind doesn't enforce NetworkPolicies by default | Local behavior can differ from EKS | `make kind-up CALICO=1` enforces them locally (D-30); policies still verified on EKS |
 | L-12 | The lab's SCP denies `s3:GetBucketObjectLockConfiguration` | `aws_s3_bucket` can't be used; buckets need a second provider (`awscc`) | D-24; CI rejects `aws_s3_bucket` (CONV §1.4) |
 | L-13 | Direct mode (D-25): dev auth, no global lock, ALB reachable over plain HTTP from the demo IPs | Anyone on a listed IP can act as any user; two sessions at once would conflict | ALB limited to the demo machines' IPs; one demo user; replaced by Cognito and ElastiCache for the final delivery (D-31: no CloudFront) |
-| L-14 | No TLS on the app or the API, and no PKCE (the SPA turns it off on HTTP, frontend D-25). The ALB is open to the internet (D-32) | Anyone on the network can read codes, tokens and API traffic; anyone can hit `/health` and get 401s from the API | Admin-created accounts only; access tokens last 60 min; `alb_ingress_cidrs` can be narrowed |
+| L-14 | No TLS on the app and no PKCE (the SPA turns it off on HTTP, frontend D-25); the API is HTTPS (D-33) | Anyone on the network can read the authorization code on its way to the SPA | Admin-created accounts only; access tokens last 60 min; API Gateway rejects bad tokens and throttles |
 
 ---
 

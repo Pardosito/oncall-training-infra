@@ -3,7 +3,7 @@
 # cluster stack and goes away with `make cluster-down` (AGENTS rule 5; cost in §12).
 
 # INF-053: private subnets with a route table that has only the implicit local route. Nothing in
-# them needs the internet; the nodes reach Redis inside the VPC.
+# them needs the internet: ElastiCache, the internal ALB and the API Gateway VPC link (D-33).
 resource "aws_subnet" "private" {
   for_each = local.private_subnets
 

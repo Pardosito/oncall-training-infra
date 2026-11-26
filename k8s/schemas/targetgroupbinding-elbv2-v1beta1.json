@@ -1,0 +1,41 @@
+{
+  "$comment": "Subset of the aws-load-balancer-controller v2 CRD (elbv2.k8s.aws/v1beta1 TargetGroupBinding) for kubeconform; only the fields this repo uses, strict.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": { "enum": ["elbv2.k8s.aws/v1beta1"] },
+    "kind": { "enum": ["TargetGroupBinding"] },
+    "metadata": {
+      "type": "object",
+      "required": ["name", "namespace"],
+      "properties": {
+        "name": { "type": "string" },
+        "namespace": { "type": "string" },
+        "labels": { "type": "object", "additionalProperties": { "type": "string" } },
+        "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["serviceRef", "targetGroupARN"],
+      "additionalProperties": false,
+      "properties": {
+        "serviceRef": {
+          "type": "object",
+          "required": ["name", "port"],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string" },
+            "port": { "type": ["string", "integer"] }
+          }
+        },
+        "targetGroupARN": {
+          "type": "string",
+          "pattern": "^(arn:aws:elasticloadbalancing:|set-by-cluster-env$)"
+        },
+        "targetType": { "enum": ["ip", "instance"] }
+      }
+    }
+  }
+}
