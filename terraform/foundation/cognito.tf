@@ -1,6 +1,7 @@
 # Cognito (INF-031..033, ARCHITECTURE §3): user pool, managed login domain and the SPA's public
-# client (authorization code; no secret). No self sign-up (D-32): accounts come from make users
-# (an email invite with a temporary password) or make e2e-user.
+# client (authorization code; no secret). Self sign-up on the managed login page with a username,
+# email and password; Cognito emails a code to verify the address before the first sign-in (D-35).
+# make users (email invite with a temporary password) and make e2e-user still work.
 # The e2e user is created by scripts/create-e2e-user.sh, never here (D-22).
 
 resource "aws_cognito_user_pool" "this" {
@@ -10,6 +11,18 @@ resource "aws_cognito_user_pool" "this" {
     case_sensitive = false
   }
   auto_verified_attributes = ["email"]
+
+  # Sign-up sends this code; the account stays UNCONFIRMED until it is entered.
+  verification_message_template {
+    default_email_option = "CONFIRM_WITH_CODE"
+    email_subject        = "Your On-Call Training verification code"
+    email_message        = "Your verification code is {####}."
+  }
+
+  # A changed email stays unverified (and the old one keeps working) until the new code is entered.
+  user_attribute_update_settings {
+    attributes_require_verification_before_update = ["email"]
+  }
 
   schema {
     name                = "email"
@@ -32,7 +45,7 @@ resource "aws_cognito_user_pool" "this" {
   }
 
   admin_create_user_config {
-    allow_admin_create_user_only = true
+    allow_admin_create_user_only = false
 
     invite_message_template {
       email_subject = "Your On-Call Training account"

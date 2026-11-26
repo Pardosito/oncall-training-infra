@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Invites Cognito users from a file (D-32: no self sign-up). One user per line:
+# Invites Cognito users from a file (D-32; users can also sign up themselves, D-35). One user per line:
 #   <username> <email>
 # Blank lines and lines starting with # are skipped. Cognito emails each new user a temporary
 # password; they choose a new one at their first sign-in. Existing users are left alone.
