@@ -1,9 +1,10 @@
-# Files bucket (ARCHITECTURE §3): scenario files, session logs for Athena, Athena results.
+# Files bucket (ARCHITECTURE §3): scenario files and session event logs. Glue/Athena were dropped
+# (D-37); the athena-results/ lifecycle rule below is a harmless leftover.
 # awscc, not aws_s3_bucket: the lab's SCP denies s3:GetBucketObjectLockConfiguration (D-24).
 resource "awscc_s3_bucket" "files" {
   bucket_name = "${local.name}-files-${local.account_id}"
 
-  # Versioning stays off: logs are append-only and Athena results are throwaway.
+  # Versioning stays off: logs are append-only.
 
   bucket_encryption = {
     server_side_encryption_configuration = [{

@@ -1,15 +1,8 @@
 %% Diagrama de la solución. Render: make diagram  →  docs/solucion.png
-%% Verde = desplegado · Gris punteado = planeado
+%% Todo lo que aparece está desplegado. Sin CloudFront (D-31) ni Glue/Athena (D-37): el Learner Lab no los permite.
 flowchart LR
     classDef deployed fill:#d3f9d8,stroke:#2b8a3e,stroke-width:2px,color:#0b3d17
-    classDef planned fill:#f1f3f5,stroke:#868e96,stroke-width:1px,stroke-dasharray:5 4,color:#495057
     classDef group fill:#ffffff,stroke:#adb5bd,color:#212529
-
-    subgraph LEG["Leyenda"]
-        direction TB
-        L1["Desplegado"]:::deployed
-        L2["Planeado (entrega final)"]:::planned
-    end
 
     subgraph CLI["Cliente"]
         direction TB
@@ -48,13 +41,12 @@ flowchart LR
 
     subgraph DATA["Servicios administrados · stack foundation"]
         direction TB
-        DDB[("DynamoDB<br/>Sessions + GSI Leaderboard")]:::deployed
+        DDB[("DynamoDB<br/>Sessions + GSI Leaderboard<br/>historial, gráficas, ranking")]:::deployed
         FQ[["SQS faults + DLQ"]]:::deployed
         UQ[["SQS user-actions.fifo + DLQ"]]:::deployed
-        FILES[("S3 files<br/>scenarios/")]:::deployed
+        FILES[("S3 files<br/>scenarios/ · logs/")]:::deployed
         ECR[("ECR ×3<br/>imágenes por git SHA")]:::deployed
         SFN{{"Step Functions<br/>máquina scenario · warmup, espera del fix, timeout"}}:::deployed
-        ATH["Glue + Athena<br/>gráficas de desempeño"]:::planned
     end
 
     BR -- "HTML/JS" --> SITE
@@ -68,6 +60,7 @@ flowchart LR
     API -- "GetObject escenarios" --> FILES
     API -- "lock de sesión" --> REDIS
     WRK -- "snapshots" --> REDIS
+    WRK -- "logs por sesión" --> FILES
     FQ -- "long poll" --> INJ
     INJ -- "escala a 0 / borra pods" --> NSMOCK
     INJ -- "STARTING → INCIDENT_ACTIVE" --> DDB
@@ -80,7 +73,5 @@ flowchart LR
     SFN -- "AWAIT_FIX (token)" --> UQ
     SFN -- "RESOLVED / FAILED + score" --> DDB
     WRK -- "SendTaskSuccess / Failure" --> SFN
-    API -.-> ATH
-    ATH -.-> FILES
 
-    class CLI,EDGE,VPC,PRIV,EKS,NSAPP,NSINJ,NSMOCK,DATA,LEG group
+    class CLI,EDGE,VPC,PRIV,EKS,NSAPP,NSINJ,NSMOCK,DATA group

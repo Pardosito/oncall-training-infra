@@ -3,7 +3,7 @@
 Living document, and the source of truth for every AWS resource, Kubernetes object and cross-repo contract this repo owns.
 Items marked **(planned)** aren't built yet. Items marked **(cross-repo)** are used by another repo; change them only together with that repo's owner.
 
-**Built and deployed today:** the whole foundation except Glue/Athena: S3 files and site buckets, DynamoDB `Sessions`, both SQS queues, ECR, Cognito (Carbon managed login, self sign-up, D-34, D-35) and the HTTP API (D-33). The whole cluster stack: EKS, the internal ALB behind the API's VPC link, ElastiCache; the backend, injector and mock system on EKS. The SPA is on the S3 website. The Step Functions state machine runs each scenario (D-36); direct mode stays as a fallback (§15). **Planned for the final delivery:** Glue/Athena, NetworkPolicies on EKS (enforced on kind already, §5.3) and the GitHub workflows. The kind setup (§14) runs the mock system and the injector locally. The diagram in [`solucion.png`](solucion.png) shows the same split.
+**Built and deployed today:** the whole foundation: S3 files and site buckets, DynamoDB `Sessions`, both SQS queues, ECR, Cognito (Carbon managed login, self sign-up, D-34, D-35) and the HTTP API (D-33). The whole cluster stack: EKS, the internal ALB behind the API's VPC link, ElastiCache; the backend, injector and mock system on EKS. The SPA is on the S3 website. The Step Functions state machine runs each scenario (D-36); direct mode stays as a fallback (§15). **Dropped because of Learner Lab limits:** CloudFront (D-31; the HTTP API gives the API HTTPS instead, D-33) and Glue/Athena (D-37; stats come from DynamoDB). **Planned for the final delivery:** NetworkPolicies on EKS (enforced on kind already, §5.3) and the GitHub workflows. The kind setup (§14) runs the mock system and the injector locally. The diagram in [`solucion.png`](solucion.png) shows the same split.
 
 ## 1. Overview
 
@@ -15,7 +15,7 @@ Browser ──► S3 site bucket: SPA on the website endpoint (HTTP)
 
                          ┌──────────────────────────── foundation (always on) ───────────────────────────┐
                          │ S3 site + files · DynamoDB · Cognito · HTTP API · SQS faults, user-actions    │
-                         │ Step Functions "scenario" · Glue table + Athena workgroup · ECR ×3            │
+                         │ Step Functions "scenario" · ECR ×3                                            │
                          └───────────────────────────────────────────────────────────────────────────────┘
                          ┌──────────────────────────── cluster (destroy when idle) ──────────────────────┐
                          │ VPC (2 AZ) · public: EKS nodes · private: internal ALB, VPC link, ElastiCache │
@@ -58,19 +58,18 @@ Browser ──► S3 site bucket: SPA on the website endpoint (HTTP)
 
 | Resource | Name | Key settings |
 |---|---|---|
-| S3 files bucket | `oncall-training-files-<acct>` | Block public access, SSE-S3, versioning off; lifecycle: `athena-results/` expires after 7 days; prefixes `scenarios/`, `logs/`, `athena-results/` |
+| S3 files bucket | `oncall-training-files-<acct>` | Block public access, SSE-S3, versioning off; prefixes `scenarios/` (scenario files) and `logs/` (one NDJSON event file per session); a leftover lifecycle rule expires `athena-results/` after 7 days (D-37) |
 | S3 site bucket | `oncall-training-site-<acct>` | Website hosting (`index.html` as index and error document, so deep links load the SPA; output `site_url`). Public read through a bucket policy for `s3:GetObject` only; the HTTPS REST endpoint (`site_https_origin`) serves `auth/callback.html` and `auth/signed-out.html` for Cognito (§12, D-31). SSE-S3; public ACLs blocked |
 | DynamoDB | `Sessions` | On-demand, PITR on; PK `user_id` (S), SK `session_id` (S); GSI `Leaderboard` (PK `scenario_id` S, SK `score` N, projection ALL); deletion protection on |
 | SQS | `oncall-training-faults` + `-faults-dlq` | Standard; visibility 60 s; retention 1 day; `maxReceiveCount = 3`; SSE-SQS |
 | SQS | `oncall-training-user-actions.fifo` + `-user-actions-dlq.fifo` | FIFO, content-based dedup **off** (senders set `MessageDeduplicationId`); visibility 60 s; `maxReceiveCount = 3`; SSE-SQS |
 | Step Functions | `oncall-training-scenario` | Standard; role = LabRole; definition from `statemachines/scenario.asl.json` via `templatefile()`; logging level `ERROR` without execution data (it carries the task token) to log group `/aws/states/oncall-training-scenario` (14-day retention). Built; sessions still run in direct mode until the backend handles `AWAIT_FIX` (§15) |
-| Glue **(planned)** | database `oncall_training`, table `session_events` | §10.2 |
-| Athena **(planned)** | workgroup `oncall-training` | Enforced output `s3://…files…/athena-results/`; `bytes_scanned_cutoff_per_query = 100 MB`; engine v3 |
+| ~~Glue, Athena~~ | — | **Dropped (D-37):** the lab role can't use them; stats come from DynamoDB (backend D-36) |
 | Cognito | user pool `oncall-training` (`prevent_destroy`); self sign-up with username, email and an emailed verification code (D-35); `make users` and `make e2e-user` still create accounts; managed login version 2 styled as Carbon g100 (`aws_cognito_managed_login_branding`, D-34) on domain `oncall-training-<acct>`; app client `oncall-training-spa`: public (no secret), authorization code grant, scopes `openid email profile`, access and ID tokens 60 min, refresh tokens 1 day; callback/logout URLs in §12 |
 | HTTP API | `oncall-training` (API Gateway v2, D-33): CORS for `site_url` and `http://localhost:5173`; stage `$default` (auto-deploy, throttling `api_throttle_rate`/`api_throttle_burst`, JSON access logs to `/aws/apigateway/oncall-training`, 7 days). Routes, VPC link and JWT authorizer come from the cluster stack. Output `api_url` |
 | ECR | `oncall-training/backend`, `oncall-training/injector`, `oncall-training/mock-system` | Immutable tags, scan on push, lifecycle: keep the last 15 images |
 
-**Outputs** (consumed by the cluster stack, scripts and other repos' CI variables): `account_id`, `sessions_table`, `files_bucket`, `faults_queue_url`, `faults_dlq_url`, `user_actions_queue_url`, `user_actions_dlq_url`, `ecr_repository_urls`, `state_machine_arn`. Added with the Cognito and site resources (D-31): `cognito_user_pool_id`, `cognito_client_id`, `cognito_authority`, `cognito_domain`, `site_bucket`, `site_url`, `site_https_origin`. With the HTTP API (D-33): `api_id`, `api_url` (frontend `VITE_API_BASE_URL`). Planned: `athena_workgroup`, `glue_database`.
+**Outputs** (consumed by the cluster stack, scripts and other repos' CI variables): `account_id`, `sessions_table`, `files_bucket`, `faults_queue_url`, `faults_dlq_url`, `user_actions_queue_url`, `user_actions_dlq_url`, `ecr_repository_urls`, `state_machine_arn`. Added with the Cognito and site resources (D-31): `cognito_user_pool_id`, `cognito_client_id`, `cognito_authority`, `cognito_domain`, `site_bucket`, `site_url`, `site_https_origin`. With the HTTP API (D-33): `api_id`, `api_url` (frontend `VITE_API_BASE_URL`). (No Glue or Athena outputs: dropped, D-37.)
 
 ## 4. Cluster resources (`terraform/cluster`)
 
@@ -141,7 +140,7 @@ Egress isn't restricted (pods need AWS APIs, Redis and the Kubernetes API). The 
 - `scripts/render-config.sh` reads the foundation and cluster outputs and writes `k8s/overlays/aws/config.env` (gitignored). Kustomize's `configMapGenerator` turns it into ConfigMap `oncall-config` in `app` and `injector`. The hash suffix triggers a rollout when it changes.
 - It also writes `k8s/overlays/aws/cluster.env` (gitignored): `ECR_REGISTRY` and `API_TARGET_GROUP_ARN`. With the committed `images.env` (`MOCK_TAG`, `INJECTOR_TAG`, `BACKEND_TAG`), Kustomize `replacements` turn the base images `registry.invalid/oncall-training/<repo>:unset` into ECR images and set the TargetGroupBinding's target group (D-27, D-33). `*.env.example` files show the keys; `make k8s-validate` uses them when the real files don't exist.
 - The images run as the `node` user; pods set `runAsUser: 1000` so the kubelet can verify `runAsNonRoot`.
-- Backend variables (names match backend ARCHITECTURE §9): `AWS_REGION`, `SESSIONS_TABLE`, `FILES_BUCKET`, `USER_ACTIONS_QUEUE_URL`, `STATE_MACHINE_ARN`, `ATHENA_WORKGROUP`, `ATHENA_DATABASE`, `REDIS_URL` (`rediss://…`), `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `MOCK_NAMESPACE=mock`, `MOCK_HEALTH_URL_TEMPLATE=http://{service}.mock.svc.cluster.local:8080/health`, `MOCK_CLUSTER=kubernetes`. No `STATS_MODE`: stats come from DynamoDB (backend D-36).
+- Backend variables (names match backend ARCHITECTURE §9): `AWS_REGION`, `SESSIONS_TABLE`, `FILES_BUCKET`, `USER_ACTIONS_QUEUE_URL`, `STATE_MACHINE_ARN`, `REDIS_URL` (`rediss://…`), `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `MOCK_NAMESPACE=mock`, `MOCK_HEALTH_URL_TEMPLATE=http://{service}.mock.svc.cluster.local:8080/health`, `MOCK_CLUSTER=kubernetes`. No `STATS_MODE`: stats come from DynamoDB (backend D-36).
 - Auth and CORS (D-31): with the foundation's Cognito outputs, `render-config.sh` writes `AUTH_MODE=cognito`, `COGNITO_USER_POOL_ID` and `COGNITO_CLIENT_ID`; without them, `AUTH_MODE=dev` and `ALLOW_DEV_AUTH=true`. No `CORS_ORIGINS`: the HTTP API answers CORS for `site_url` and ignores the backend's CORS headers (D-33). The JWT authorizer only accepts Cognito tokens, so dev auth can't reach the API through API Gateway.
 - Injector variables: `AWS_REGION`, `FAULTS_QUEUE_URL`, `SESSIONS_TABLE`, `REDIS_URL`, `MOCK_NAMESPACE=mock`.
 - No Kubernetes Secrets are needed (no passwords; AWS credentials come from the node).
@@ -278,16 +277,8 @@ One image; `ROLE` selects the behavior. The chain is `gateway → orders → wor
 ### 10.1 DynamoDB `Sessions`
 The table is created here; **its item shape is owned by the backend** (backend ARCHITECTURE §7.1). The state machine and the injector write the attributes listed there for them.
 
-### 10.2 Glue table `session_events` (planned) (cross-repo with backend ARCHITECTURE §7.4)
-- Location: `s3://oncall-training-files-<acct>/logs/`, SerDe `org.openx.data.jsonserde.JsonSerDe`.
-- Columns: `ts string, user_id string, session_id string, scenario_id string, type string, action string, target string, params struct<replicas:int>, valid boolean, score int, ttd_seconds int, ttr_seconds int`.
-- Partitions: `year string, month string, day string` with **partition projection**:
-  - `projection.enabled = true`
-  - `projection.year.type = integer`, range `2026,2030`
-  - `projection.month.type = integer`, range `1,12`, digits `2`
-  - `projection.day.type = integer`, range `1,31`, digits `2`
-  - `storage.location.template = s3://…/logs/year=${year}/month=${month}/day=${day}/`
-- No crawler and no `MSCK REPAIR`. The named queries themselves live in the backend repo.
+### 10.2 Session event files (no Glue/Athena)
+The backend writes one NDJSON file per session to `s3://oncall-training-files-<acct>/logs/year=/month=/day=/` (backend ARCHITECTURE §7.4). The Glue table and Athena workgroup designed for them (D-21) were dropped because the lab role can't use those services (D-37); stats and the leaderboard come from DynamoDB. The files keep the date partitioning, so Athena could be added in a real account (F-12).
 
 ## 11. Site and API access (D-31)
 
@@ -302,7 +293,7 @@ No CDN. The browser uses three paths:
 - API Gateway → VPC link → internal ALB → pods. The ALB has no public IPs and accepts only the VPC link (D-33). The site bucket allows public read only.
 - `api_url` never changes. While the cluster is down the API has no routes and answers 404.
 - Requests without a valid Cognito access token get 401 from API Gateway; the backend validates every token again.
-- CloudFront with ACM would add HTTPS and one domain. It's a future improvement (F-03, D-31).
+- No CloudFront: the Learner Lab doesn't allow it (D-31), so the site is plain HTTP on the S3 website endpoint, and the API gets HTTPS from API Gateway instead (D-33). CloudFront with ACM is a future improvement (F-03).
 
 ## 12. Cognito
 
@@ -350,7 +341,7 @@ No CDN. The browser uses three paths:
 | ElastiCache cache.t3.micro | $0.017 | cluster |
 | Public IPv4 addresses (2 nodes; the ALB is internal) | $0.01 | cluster |
 | **Cluster total** | **≈ $0.25/h (≈ $6/day if left up)** | |
-| S3, DynamoDB on-demand, SQS, Step Functions, Cognito, ECR storage, Athena | cents per day at our usage | foundation |
+| S3, DynamoDB on-demand, SQS, Step Functions, Cognito, HTTP API (per request), ECR storage | cents per day at our usage | foundation |
 | HTTP API ($1 per million requests; about 3,600 per hour per polling user), VPC link (free) | under $0.01/h per active user | foundation / cluster |
 
 ## 14. Local (kind)

@@ -34,7 +34,7 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-18 | 2026-10-22 | Image rollouts happen from this repo (`make deploy` / `deploy.yml`), tags pinned in `images.env` | Decided (answers backend O-03) |
 | D-19 | 2026-10-22 | Lifecycle through a Makefile; GitHub workflows call the same targets; Learner Lab credentials as secrets | Decided |
 | D-20 | 2026-10-22 | `cluster-down` deletes the Ingress and waits for the ALB before `terraform destroy` | Superseded by D-33 (Terraform owns the ALB) |
-| D-21 | 2026-10-22 | Glue table with partition projection; Athena workgroup with a 100 MB scan limit | Decided |
+| D-21 | 2026-10-22 | Glue table with partition projection; Athena workgroup with a 100 MB scan limit | Superseded by D-37 (Glue/Athena dropped) |
 | D-22 | 2026-10-22 | The e2e Cognito user is created by a script, not Terraform | Decided (answers frontend O-04) |
 | D-23 | 2026-10-22 | Docs written in English | Decided |
 | D-24 | 2026-10-27 | S3 buckets use `awscc_s3_bucket` (Cloud Control), not `aws_s3_bucket` | Decided (forced by Learner Lab) |
@@ -44,12 +44,13 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-28 | 2026-11-05 | No API Gateway: CloudFront is the edge, the ALB routes to the pods | Superseded by D-33 |
 | D-29 | 2026-11-21 | State machine error handling: retry only idempotent sends and writes, never `WaitForFix` or a failed condition; every path still sends `SESSION_ENDED` | Decided |
 | D-30 | 2026-11-21 | kind: the backend runs on the host, the injector reaches LocalStack through `host.docker.internal`; Calico uses pod range `10.244.0.0/16` | Decided |
-| D-31 | 2026-11-25 | No CloudFront: SPA on the S3 website endpoint, Cognito callbacks through HTTPS bounce pages on the same bucket, API on the ALB with CORS | Decided (replaces D-07/D-08 for the final delivery) |
+| D-31 | 2026-11-25 | No CloudFront: SPA on the S3 website endpoint, Cognito callbacks through HTTPS bounce pages on the same bucket, API on the ALB with CORS | Decided (forced by Learner Lab; API part superseded by D-33) |
 | D-32 | 2026-11-25 | ALB open to `0.0.0.0/0` on port 80; Cognito accounts created by admins only (`make users`), no self sign-up | Superseded (open ALB by D-33, admin-only accounts by D-35) |
 | D-33 | 2026-11-26 | API Gateway HTTP API (foundation, stable HTTPS URL, JWT, throttling, CORS) → VPC link → internal ALB owned by Terraform; pods registered with a TargetGroupBinding | Decided |
 | D-34 | 2026-11-26 | Managed login version 2 with Carbon g100 branding in Terraform, instead of a custom sign-in UI | Decided |
 | D-35 | 2026-11-26 | Self sign-up on the managed login page: username, email and password, email verified with a code | Decided |
 | D-36 | 2026-11-26 | Step Functions runs every scenario: `render-config` defaults to `ORCHESTRATION_MODE=stepfunctions`; direct mode is a fallback | Decided |
+| D-37 | 2026-11-26 | Glue and Athena dropped: the lab role can't use them; stats come from DynamoDB (backend D-36) | Decided (forced by Learner Lab) |
 
 ---
 
@@ -184,7 +185,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 ### D-31 · S3 website instead of CloudFront
 **Why:** the team can't use CloudFront in the Learner Lab. The SPA is served by S3 static website hosting (`site` bucket, public read through a bucket policy, `index.html` as index and error document so deep links load the SPA).
 **Cognito:** callback and sign-out URLs must be HTTPS (or localhost), but the website endpoint is HTTP. So the app client registers two tiny pages on the bucket's **HTTPS REST endpoint** (`https://<bucket>.s3.us-east-1.amazonaws.com/auth/callback.html` and `/auth/signed-out.html`); they forward the code and state unchanged to the SPA on the website endpoint. Browsers don't expose Web Crypto on plain HTTP, so the SPA turns PKCE off there (frontend D-25).
-**API:** the SPA calls the ALB directly; the backend allows the website origin with `CORS_ORIGINS` (backend D-35), rendered by `render-config.sh` from the `site_url` output. The ALB is open by default (D-32).
+**API (superseded by D-33):** the SPA called the ALB directly; the backend allows the website origin with `CORS_ORIGINS` (backend D-35), rendered by `render-config.sh` from the `site_url` output. The ALB is open by default (D-32).
 **Trade-off:** no HTTPS for the app or the API, and no PKCE: an authorization code or token on the network could be read. Acceptable for a lab demo; CloudFront + ACM (F-03) removes it.
 
 ### D-32 · Open ALB, admin-created accounts
@@ -221,6 +222,12 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 **How:** `render-config.sh` defaults `ORCHESTRATION_MODE` to `stepfunctions`; `ORCHESTRATION_MODE=direct make render-config` and `make deploy` switch back (ARCHITECTURE §15). No Terraform change: the state machine was already in foundation.
 **Verified on EKS (2026-11-26, backend 3766f39):** resolve (InjectFault → WaitForFix → PersistResolved → NotifyEnded, score written by the state machine); abandon after the fault (`SendTaskFailure` → MarkFailed → `FAILED`/`ABANDONED`, mock system reset); abandon during the warmup (session ends at once, the injector skips the FAULT, the execution still ends on the failure branch); timeout after `maxResolveSeconds` (`FAILED`/`TIMEOUT`).
 
+### D-37 · Glue and Athena dropped
+**Why:** the Learner Lab's role can't use Glue and Athena, so the analytics path designed in D-21 (session events in S3 → Glue table with partition projection → Athena queries for the charts) can't run here.
+**What replaces it:** the backend computes the stats from DynamoDB: one `Query` on the user's partition, then plain math in the service; the leaderboard reads the `Leaderboard` GSI (backend D-36). The charts and the leaderboard work on EKS. The backend still writes one NDJSON event file per session to `s3://…files…/logs/`, which keeps the door open for Athena in a real account.
+**What changes here:** no Glue database, table or Athena workgroup in Terraform; `render-config` no longer looks for `athena_workgroup` or `glue_database`; the `athena-results/` lifecycle rule on the files bucket stays (harmless, nothing writes there).
+**Trade-off:** no ad hoc SQL over the history; every new stat is code in the backend. Fine at course scale (a few hundred sessions per user at most). Future improvement F-12.
+
 ---
 
 ## 3. Current limitations
@@ -239,7 +246,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 | L-10 | No metrics or alerting stack | Debugging relies on `kubectl logs` and CloudWatch (Step Functions) | `make status`; JSON logs |
 | L-11 | kind doesn't enforce NetworkPolicies by default | Local behavior can differ from EKS | `make kind-up CALICO=1` enforces them locally (D-30); policies still verified on EKS |
 | L-12 | The lab's SCP denies `s3:GetBucketObjectLockConfiguration` | `aws_s3_bucket` can't be used; buckets need a second provider (`awscc`) | D-24; CI rejects `aws_s3_bucket` (CONV §1.4) |
-| L-13 | Direct mode (D-25): dev auth, no global lock, ALB reachable over plain HTTP from the demo IPs | Anyone on a listed IP can act as any user; two sessions at once would conflict | ALB limited to the demo machines' IPs; one demo user; replaced by Cognito and ElastiCache for the final delivery (D-31: no CloudFront) |
+| L-13 | ~~Direct mode (D-25): dev auth, no global lock, ALB reachable over plain HTTP from the demo IPs~~ | Resolved on 2026-11-26 | Cognito auth (D-31, D-35), the Redis lock (ElastiCache), Step Functions (D-36) and the HTTP API in front of an internal ALB (D-33) |
 | L-14 | No TLS on the app and no PKCE (the SPA turns it off on HTTP, frontend D-25); the API is HTTPS (D-33) | Anyone on the network can read the authorization code on its way to the SPA | Admin-created accounts only; access tokens last 60 min; API Gateway rejects bad tokens and throttles |
 
 ---
@@ -259,6 +266,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 | F-09 | ElastiCache with a replica (or Serverless) | L-05 |
 | F-10 | Scheduled automatic `cluster-down` (e.g. a nightly workflow) as a cost guard | L-07 |
 | F-11 | Separate environments (workspaces or directories per env) | Safer changes |
+| F-12 | Glue table + Athena workgroup over the session event files in S3, for ad hoc analytics (D-21 design, dropped in D-37) | Analytics |
 
 ---
 

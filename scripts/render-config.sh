@@ -33,10 +33,6 @@ api_tg="$(require "$cluster" api_target_group_arn)"
 [ -n "$mock_repo_url" ] || { echo "error: ecr_repository_urls missing in foundation outputs" >&2; exit 1; }
 ecr_registry="${mock_repo_url%%/*}"
 
-# Outputs that only exist from M2 on. Until then the MVP config below applies (D-25, INF-139).
-for later in athena_workgroup glue_database; do
-  [ -n "$(get "$foundation" "$later")" ] || echo "note: no '$later' output yet (M2); not in config.env" >&2
-done
 cognito_user_pool_id="$(get "$foundation" cognito_user_pool_id)"
 cognito_client_id="$(get "$foundation" cognito_client_id)"
 state_machine_arn="$(get "$foundation" state_machine_arn)"

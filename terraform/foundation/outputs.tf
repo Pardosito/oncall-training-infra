@@ -12,7 +12,7 @@ output "sessions_table" {
 }
 
 output "files_bucket" {
-  description = "S3 bucket for scenario files, session logs and Athena results (backend FILES_BUCKET)."
+  description = "S3 bucket for scenario files and session event logs (backend FILES_BUCKET)."
   value       = awscc_s3_bucket.files.bucket_name
 }
 
