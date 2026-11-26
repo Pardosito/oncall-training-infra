@@ -3,7 +3,7 @@
 Living document, and the source of truth for every AWS resource, Kubernetes object and cross-repo contract this repo owns.
 Items marked **(planned)** aren't built yet. Items marked **(cross-repo)** are used by another repo; change them only together with that repo's owner.
 
-**Built and deployed today:** the whole foundation: S3 files and site buckets, DynamoDB `Sessions`, both SQS queues, ECR, Cognito (Carbon managed login, self sign-up, D-34, D-35) and the HTTP API (D-33). The whole cluster stack: EKS, the internal ALB behind the API's VPC link, ElastiCache; the backend, injector and mock system on EKS. The SPA is on the S3 website. The Step Functions state machine runs each scenario (D-36); direct mode stays as a fallback (§15). **Dropped because of Learner Lab limits:** CloudFront (D-31; the HTTP API gives the API HTTPS instead, D-33) and Glue/Athena (D-37; stats come from DynamoDB). **Planned for the final delivery:** NetworkPolicies on EKS (enforced on kind already, §5.3) and the GitHub workflows. The kind setup (§14) runs the mock system and the injector locally. The diagram in [`solucion.png`](solucion.png) shows the same split.
+**Built and deployed today:** the whole foundation: S3 files and site buckets, DynamoDB `Sessions`, both SQS queues, ECR, Cognito (Carbon managed login, self sign-up, D-34, D-35) and the HTTP API (D-33). The whole cluster stack: EKS, the internal ALB behind the API's VPC link, ElastiCache; the backend, injector and mock system on EKS. The SPA is on the S3 website. The Step Functions state machine runs each scenario (D-36); direct mode stays as a fallback (§15). **Dropped because of Learner Lab limits:** CloudFront (D-31; the HTTP API gives the API HTTPS instead, D-33) and Glue/Athena (D-37; stats come from DynamoDB). The NetworkPolicies are enforced on EKS (§5.3). **Planned:** the GitHub workflows for images and the cluster lifecycle. The kind setup (§14) runs the mock system and the injector locally. The diagram in [`solucion.png`](solucion.png) shows the same split.
 
 ## 1. Overview
 
@@ -133,7 +133,7 @@ Files in `k8s/base/networkpolicies/`, one per policy.
 
 Egress isn't restricted (pods need AWS APIs, Redis and the Kubernetes API). The injector gets no access to the mock pods: it only uses the Kubernetes API.
 
-**Rollout:** the directory isn't part of `k8s/base/kustomization.yaml`; each overlay includes it. The local overlay does already, and `make netpol-test` checks it on kind with Calico (§14). The aws overlay adds it once INF-067 shows on EKS that kubelet probes and ALB health checks still pass with the VPC CNI policy agent (DECISIONS O-04). The policies go in together, or the ALB and the health checks break.
+**Rollout:** the directory isn't part of `k8s/base/kustomization.yaml`; each overlay includes it, so both kind (`make kind-up CALICO=1`, `make netpol-test`) and EKS enforce the same policies. **Verified on EKS (2026-11-26, INF-067):** injector → mock and injector → api time out; api, worker and gateway → orders answer 200; kubelet probes keep passing (no restarts, new pods become ready); both ALB targets stay healthy; a full incident resolves with the policies on.
 
 ### 5.4 Configuration
 
