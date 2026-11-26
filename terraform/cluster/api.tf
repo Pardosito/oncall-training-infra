@@ -92,11 +92,14 @@ resource "aws_apigatewayv2_integration" "alb" {
   timeout_milliseconds = 30000
 }
 
-# No OPTIONS route: with one, API Gateway would send preflights to the backend (which answers 401
-# without a token). Without it, API Gateway answers them from the API's CORS configuration.
+# One route per method, never ANY and never OPTIONS: preflights carry no token, and ANY would run
+# the JWT authorizer on them (401, verified in the lab). With no route matching OPTIONS, API
+# Gateway answers preflights from the API's CORS configuration.
 resource "aws_apigatewayv2_route" "api" {
+  for_each = toset(["GET", "POST", "PUT", "PATCH", "DELETE"])
+
   api_id             = local.api_id
-  route_key          = "ANY /api/{proxy+}"
+  route_key          = "${each.key} /api/{proxy+}"
   target             = "integrations/${aws_apigatewayv2_integration.alb.id}"
   authorization_type = "JWT"
   authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
