@@ -44,17 +44,12 @@ variable "node_count" {
 
 variable "alb_ingress_cidrs" {
   type        = list(string)
-  description = "Public IPs (INF-138) allowed to reach the ALB on port 80, e.g. [\"203.0.113.7/32\"]. Set real values in cluster.auto.tfvars (gitignored). Browsers call the ALB directly (D-31), so every user's IP goes here."
-  default     = []
+  description = "Who can reach the ALB on port 80. Open by default (D-32): the API rejects requests without a Cognito token and only admins create accounts. Narrow it to e.g. [\"203.0.113.7/32\"] in cluster.auto.tfvars if needed."
+  default     = ["0.0.0.0/0"]
 
   validation {
     condition     = alltrue([for c in var.alb_ingress_cidrs : can(cidrhost(c, 0))])
     error_message = "Every alb_ingress_cidrs entry must be a valid CIDR."
-  }
-
-  validation {
-    condition     = !contains(var.alb_ingress_cidrs, "0.0.0.0/0")
-    error_message = "The ALB must not be open to 0.0.0.0/0 (CONVENTIONS §1.6)."
   }
 }
 

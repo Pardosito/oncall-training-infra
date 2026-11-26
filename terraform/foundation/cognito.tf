@@ -1,5 +1,6 @@
 # Cognito (INF-031..033, ARCHITECTURE §3): user pool, managed login domain and the SPA's public
-# client (authorization code; no secret). Users sign up themselves on the managed login page.
+# client (authorization code; no secret). No self sign-up (D-32): accounts come from make users
+# (an email invite with a temporary password) or make e2e-user.
 # The e2e user is created by scripts/create-e2e-user.sh, never here (D-22).
 
 resource "aws_cognito_user_pool" "this" {
@@ -31,7 +32,13 @@ resource "aws_cognito_user_pool" "this" {
   }
 
   admin_create_user_config {
-    allow_admin_create_user_only = false
+    allow_admin_create_user_only = true
+
+    invite_message_template {
+      email_subject = "Your On-Call Training account"
+      email_message = "Your username is {username} and your temporary password is {####}. Sign in from the app; you'll pick a new password."
+      sms_message   = "On-Call Training: username {username}, temporary password {####}"
+    }
   }
 
   account_recovery_setting {

@@ -10,12 +10,14 @@ resource "aws_security_group" "alb" {
   tags = { Name = "${local.name}-alb" }
 }
 
-# The users' public IPs: the SPA on the S3 website calls the ALB directly (D-31, no CloudFront).
+# The SPA on the S3 website calls the ALB directly (D-31). Open to the internet by default (D-32):
+# every API route but /health needs a Cognito token, and accounts are created by admins only.
+# checkov CKV_AWS_260 (port 80 from 0.0.0.0/0) is expected here.
 resource "aws_vpc_security_group_ingress_rule" "alb_http" {
   for_each = toset(var.alb_ingress_cidrs)
 
   security_group_id = aws_security_group.alb.id
-  description       = "HTTP from an allowed demo IP (alb_ingress_cidrs)"
+  description       = "HTTP from alb_ingress_cidrs (open by default, D-32)"
   ip_protocol       = "tcp"
   from_port         = 80
   to_port           = 80

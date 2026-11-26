@@ -10,7 +10,7 @@ Items marked **(planned)** aren't built yet. Items marked **(cross-repo)** are u
 ```
 Browser ──► S3 site bucket: SPA on the website endpoint (HTTP)
    │        /auth/*.html on the S3 REST endpoint (HTTPS, Cognito bounce pages)
-   └──────► ALB :80 (HTTP, CORS, only alb_ingress_cidrs) ──► pods
+   └──────► ALB :80 (HTTP, CORS, alb_ingress_cidrs) ──► pods
 
                          ┌──────────────────────────── foundation (always on) ───────────────────────────┐
                          │ S3 site + files · DynamoDB Sessions · Cognito · SQS faults, user-actions.fifo │
@@ -65,7 +65,7 @@ Browser ──► S3 site bucket: SPA on the website endpoint (HTTP)
 | Step Functions | `oncall-training-scenario` | Standard; role = LabRole; definition from `statemachines/scenario.asl.json` via `templatefile()`; logging level `ERROR` without execution data (it carries the task token) to log group `/aws/states/oncall-training-scenario` (14-day retention). Built; sessions still run in direct mode until the backend handles `AWAIT_FIX` (§15) |
 | Glue **(planned)** | database `oncall_training`, table `session_events` | §10.2 |
 | Athena **(planned)** | workgroup `oncall-training` | Enforced output `s3://…files…/athena-results/`; `bytes_scanned_cutoff_per_query = 100 MB`; engine v3 |
-| Cognito | user pool `oncall-training` (`prevent_destroy`); self sign-up on, email verified with a code; managed login (classic hosted UI, `managed_login_version = 1`) on domain `oncall-training-<acct>`; app client `oncall-training-spa`: public (no secret), authorization code grant, scopes `openid email profile`, access and ID tokens 60 min, refresh tokens 1 day; callback/logout URLs in §12 |
+| Cognito | user pool `oncall-training` (`prevent_destroy`); no self sign-up, accounts from `make users` or `make e2e-user` (D-32); managed login (classic hosted UI, `managed_login_version = 1`) on domain `oncall-training-<acct>`; app client `oncall-training-spa`: public (no secret), authorization code grant, scopes `openid email profile`, access and ID tokens 60 min, refresh tokens 1 day; callback/logout URLs in §12 |
 | ECR | `oncall-training/backend`, `oncall-training/injector`, `oncall-training/mock-system` | Immutable tags, scan on push, lifecycle: keep the last 15 images |
 
 **Outputs** (consumed by the cluster stack, scripts and other repos' CI variables): `account_id`, `sessions_table`, `files_bucket`, `faults_queue_url`, `faults_dlq_url`, `user_actions_queue_url`, `user_actions_dlq_url`, `ecr_repository_urls`, `state_machine_arn`. Added with the Cognito and site resources (D-31): `cognito_user_pool_id`, `cognito_client_id`, `cognito_authority`, `cognito_domain`, `site_bucket`, `site_url`, `site_https_origin`. Planned: `athena_workgroup`, `glue_database`.
@@ -80,7 +80,7 @@ Browser ──► S3 site bucket: SPA on the website endpoint (HTTP)
 | Node group | `default`: **2× `t3.medium`**, `ON_DEMAND`, AL2023 x86_64, min 2 / desired 2 / max 3, public subnets, role = LabRole; launch template: IMDSv2 required, **`http_put_response_hop_limit = 2`** (so pods can use the node role), 20 GB gp3 |
 | Add-ons | `vpc-cni` with `{"enableNetworkPolicy": "true"}`, `coredns`, `kube-proxy` (versions pinned per EKS version) |
 | AWS Load Balancer Controller | `helm_release` (chart pinned) in `kube-system`; uses the node role (no service account annotation); `clusterName`, `region`, `vpcId` set explicitly |
-| ALB security group | `oncall-training-alb`, attached through Ingress annotations. Inbound 80 only from `var.alb_ingress_cidrs` (the users' public IPs, in the gitignored `cluster.auto.tfvars`; `0.0.0.0/0` is rejected). The browser calls the ALB directly (D-31), so every user's IP must be listed |
+| ALB security group | `oncall-training-alb`, attached through Ingress annotations. Inbound 80 from `var.alb_ingress_cidrs`, default `0.0.0.0/0` (D-32): the browser calls the ALB directly (D-31) and every API route except health needs a Cognito token. A narrower list can go in the gitignored `cluster.auto.tfvars` |
 | ElastiCache | Replication group `oncall-training`, engine **Valkey** (`valkey_version`, default 8.0), `cache_node_type` (default `cache.t3.micro`; INF-066 confirms the smallest the lab allows), 1 node, private subnets, TLS in transit and at rest, no AUTH token; SG `oncall-training-redis` allows 6379 only from the EKS cluster security group (the nodes and therefore every pod) |
 
 **Outputs:** `cluster_name`, `cluster_endpoint`, `vpc_id`, `vpc_cidr`, `alb_security_group_id`, `redis_endpoint` (`rediss://<host>:6379`; `render-config.sh` writes it as `REDIS_URL`).
@@ -301,13 +301,13 @@ No CDN. The browser uses three paths:
 | Cognito bounce pages | `site_https_origin` + `/auth/callback.html`, `/auth/signed-out.html` | HTTPS | S3 REST endpoint; they forward the code and state to the SPA on `site_url` |
 | API | ALB `oncall-training-api`, `/api/...` | HTTP, port 80 | Called directly from the browser; the backend allows `site_url` in `CORS_ORIGINS` (backend D-35) |
 
-- The ALB accepts only `alb_ingress_cidrs` (§4). The site bucket allows public read only.
+- The ALB accepts `alb_ingress_cidrs` (§4), everyone by default (D-32); the API itself requires a Cognito token. The site bucket allows public read only.
 - The ALB's DNS name changes on every `cluster-up`, so the browser's API address changes with it, and the API is unreachable while the cluster is down.
 - CloudFront with ACM would add HTTPS and one domain. It's a future improvement (F-03, D-31).
 
 ## 12. Cognito
 
-- User pool `oncall-training` (`prevent_destroy`): self sign-up, email verified with a code, Cognito's default email sender (low daily limit, enough for a course).
+- User pool `oncall-training` (`prevent_destroy`): no self sign-up (D-32). `make users USERS_FILE=…` (`scripts/invite-users.sh`) creates each `<username> <email>` line and Cognito emails a temporary password; the user picks a new one at first sign-in. Cognito's default email sender (about 50 emails a day, enough for a course).
 - Managed login uses the classic hosted UI (`managed_login_version = 1`); version 2 needs a branding resource before the page renders. Domain `oncall-training-<acct>` (`cognito_domain` output).
 - App client `oncall-training-spa`: public (no secret), authorization code grant, scopes `openid email profile`, `ALLOW_USER_SRP_AUTH` for the managed login, `ALLOW_USER_PASSWORD_AUTH` for the e2e script, refresh tokens 1 day, access and ID tokens 60 min, token revocation on.
 - Callback URLs (cross-repo with the frontend): `https://<bucket>.s3.us-east-1.amazonaws.com/auth/callback.html` (`site_https_origin` + `/auth/callback.html`) and `http://localhost:5173/callback`.
@@ -380,7 +380,7 @@ What runs today, until the planned services above are in place (DECISIONS D-25).
 | `PersistResolved` / `MarkFailed` write the end state; `SESSION_ENDED` triggers the reset | The backend worker writes `RESOLVED` / `FAILED` and resets the mock system |
 | ElastiCache: lock, dashboard snapshots, event buffer | None. One demo user; the api builds the dashboard on each request |
 | Cognito | `AUTH_MODE=cognito` (`render-config.sh` writes it from the foundation outputs); `AUTH_MODE=dev` with `ALLOW_DEV_AUTH=true` only when they're missing. Frontend: `VITE_AUTH_MODE=dev` today |
-| Browser → ALB directly, with CORS (§11, D-31) | The SPA's Vite dev proxy → ALB (`API_PROXY_TARGET`, frontend D-18); the ALB allows only `var.alb_ingress_cidrs` |
+| Browser → ALB directly, with CORS (§11, D-31) | The SPA's Vite dev proxy → ALB (`API_PROXY_TARGET`, frontend D-18); the ALB allows `var.alb_ingress_cidrs` (everyone by default, D-32) |
 
 - **Config:** the backend gets `ORCHESTRATION_MODE=direct` and `FAULTS_QUEUE_URL`, plus the auth switch and `CORS_ORIGINS` of §5.4. `REDIS_URL` (backend and injector) appears once the cluster stack with ElastiCache is applied: `render-config.sh` writes it from `redis_endpoint`, and both services then switch to the Redis lock, event log and snapshots.
 - The api needs `sqs:SendMessage` on `faults`; LabRole allows it.
