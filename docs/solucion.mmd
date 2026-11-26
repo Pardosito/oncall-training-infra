@@ -1,16 +1,14 @@
 %% Diagrama de la solución. Render: make diagram  →  docs/solucion.png
-%% Verde = desplegado · Amarillo = creado, aún sin usar · Gris punteado = planeado
+%% Verde = desplegado · Gris punteado = planeado
 flowchart LR
     classDef deployed fill:#d3f9d8,stroke:#2b8a3e,stroke-width:2px,color:#0b3d17
-    classDef built fill:#fff3bf,stroke:#e67700,stroke-width:2px,color:#5c3c00
     classDef planned fill:#f1f3f5,stroke:#868e96,stroke-width:1px,stroke-dasharray:5 4,color:#495057
     classDef group fill:#ffffff,stroke:#adb5bd,color:#212529
 
     subgraph LEG["Leyenda"]
         direction TB
         L1["Desplegado"]:::deployed
-        L2["Creado, aún sin usar"]:::built
-        L3["Planeado (entrega final)"]:::planned
+        L2["Planeado (entrega final)"]:::planned
     end
 
     subgraph CLI["Cliente"]
@@ -55,7 +53,7 @@ flowchart LR
         UQ[["SQS user-actions.fifo + DLQ"]]:::deployed
         FILES[("S3 files<br/>scenarios/")]:::deployed
         ECR[("ECR ×3<br/>imágenes por git SHA")]:::deployed
-        SFN{{"Step Functions<br/>máquina scenario (backend en modo direct)"}}:::built
+        SFN{{"Step Functions<br/>máquina scenario · warmup, espera del fix, timeout"}}:::deployed
         ATH["Glue + Athena<br/>gráficas de desempeño"]:::planned
     end
 
@@ -66,7 +64,6 @@ flowchart LR
     APIGW --> LINK --> ALB
     ALB -- "IPs de pods" --> API
     API -- "Get/Put/UpdateItem" --> DDB
-    API -- "FAULT con delay" --> FQ
     API -- "acciones del usuario" --> UQ
     API -- "GetObject escenarios" --> FILES
     API -- "lock de sesión" --> REDIS
@@ -76,12 +73,13 @@ flowchart LR
     INJ -- "STARTING → INCIDENT_ACTIVE" --> DDB
     UQ -- "FIFO por sesión" --> WRK
     WRK -- "aplica el fix" --> NSMOCK
-    WRK -- "RESOLVED + score" --> DDB
     ECR -. "pull de imágenes" .-> EKS
 
-    API -. "StartExecution" .-> SFN
-    SFN -.-> FQ
-    SFN -. "AWAIT_FIX" .-> UQ
+    API -- "StartExecution" --> SFN
+    SFN -- "FAULT tras warmup" --> FQ
+    SFN -- "AWAIT_FIX (token)" --> UQ
+    SFN -- "RESOLVED / FAILED + score" --> DDB
+    WRK -- "SendTaskSuccess / Failure" --> SFN
     API -.-> ATH
     ATH -.-> FILES
 
