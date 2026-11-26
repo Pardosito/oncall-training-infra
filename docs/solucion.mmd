@@ -1,65 +1,76 @@
-%% Diagrama de la solución (entregable 1). Render: make diagram  →  docs/solucion.png
-%% Verde = desplegado en la entrega intermedia · Gris punteado = planeado para la entrega final
+%% Diagrama de la solución. Render: make diagram  →  docs/solucion.png
+%% Verde = desplegado · Amarillo = creado, aún sin usar · Gris punteado = planeado
 flowchart LR
     classDef deployed fill:#d3f9d8,stroke:#2b8a3e,stroke-width:2px,color:#0b3d17
+    classDef built fill:#fff3bf,stroke:#e67700,stroke-width:2px,color:#5c3c00
     classDef planned fill:#f1f3f5,stroke:#868e96,stroke-width:1px,stroke-dasharray:5 4,color:#495057
     classDef group fill:#ffffff,stroke:#adb5bd,color:#212529
-    classDef legend fill:#ffffff,stroke:#ffffff,color:#212529
 
     subgraph LEG["Leyenda"]
         direction TB
-        L1["Desplegado (entrega intermedia)"]:::deployed
-        L2["Planeado (entrega final)"]:::planned
+        L1["Desplegado"]:::deployed
+        L2["Creado, aún sin usar"]:::built
+        L3["Planeado (entrega final)"]:::planned
     end
 
     subgraph CLI["Cliente"]
         direction TB
-        SPA["SPA React<br/>Vite dev server + proxy /api"]:::deployed
-        PM["curl / Postman"]:::deployed
+        BR["Navegador<br/>SPA React (Carbon)"]:::deployed
     end
 
-    subgraph EDGE["Entrada"]
+    subgraph EDGE["Entrada · stack foundation (siempre arriba)"]
         direction TB
-        CF["CloudFront<br/>HTTPS · / y /api/*"]:::planned
-        ALB["ALB oncall-training-api<br/>AWS Load Balancer Controller<br/>solo IPs de la demo"]:::deployed
-        COG["Cognito<br/>login PKCE"]:::planned
-        SITE[("S3 site<br/>build de la SPA")]:::planned
+        SITE[("S3 site<br/>website HTTP · build de la SPA")]:::deployed
+        COG["Cognito<br/>managed login Carbon · registro con código por email"]:::deployed
+        APIGW["API Gateway HTTP API<br/>HTTPS · CORS · JWT Cognito · throttling 20/s"]:::deployed
     end
 
-    subgraph EKS["EKS · 2× t3.medium · us-east-1"]
+    subgraph VPC["VPC · stack cluster (se destruye con make cluster-down)"]
         direction TB
-        subgraph NSAPP["ns app"]
-            API["backend-api ×2<br/>contenedor :3000"]:::deployed
-            WRK["backend-worker ×1"]:::deployed
+        subgraph PRIV["subredes privadas"]
+            LINK["VPC link"]:::deployed
+            ALB["ALB interno<br/>Terraform · target group IP :3000"]:::deployed
+            REDIS[("ElastiCache Valkey<br/>lock + snapshots · TLS")]:::deployed
         end
-        subgraph NSINJ["ns injector"]
-            INJ["injector ×1"]:::deployed
-        end
-        subgraph NSMOCK["ns mock · sistema simulado"]
-            direction LR
-            GW["gateway"]:::deployed --> ORD["orders ×2"]:::deployed --> WS["worker-svc"]:::deployed
+        subgraph EKS["EKS · 2× t3.medium"]
+            direction TB
+            subgraph NSAPP["ns app"]
+                API["backend-api ×2<br/>TargetGroupBinding"]:::deployed
+                WRK["backend-worker ×1"]:::deployed
+            end
+            subgraph NSINJ["ns injector"]
+                INJ["injector ×1"]:::deployed
+            end
+            subgraph NSMOCK["ns mock · sistema simulado"]
+                direction LR
+                GW["gateway"]:::deployed --> ORD["orders ×2"]:::deployed --> WS["worker-svc"]:::deployed
+            end
         end
     end
 
-    subgraph DATA["Servicios administrados"]
+    subgraph DATA["Servicios administrados · stack foundation"]
         direction TB
         DDB[("DynamoDB<br/>Sessions + GSI Leaderboard")]:::deployed
         FQ[["SQS faults + DLQ"]]:::deployed
         UQ[["SQS user-actions.fifo + DLQ"]]:::deployed
         FILES[("S3 files<br/>scenarios/")]:::deployed
         ECR[("ECR ×3<br/>imágenes por git SHA")]:::deployed
-        SFN{{"Step Functions<br/>máquina de estados scenario"}}:::planned
-        REDIS[("ElastiCache Valkey<br/>lock + snapshots")]:::planned
+        SFN{{"Step Functions<br/>máquina scenario (backend en modo direct)"}}:::built
         ATH["Glue + Athena<br/>gráficas de desempeño"]:::planned
     end
 
-    SPA -- "HTTP /api/*" --> ALB
-    PM -- "HTTP /api/*" --> ALB
-    ALB -- "proxy a IPs de pods" --> API
+    BR -- "HTML/JS" --> SITE
+    BR -- "login / registro" --> COG
+    BR -- "HTTPS /api/* + token" --> APIGW
+    APIGW -. "valida JWT" .-> COG
+    APIGW --> LINK --> ALB
+    ALB -- "IPs de pods" --> API
     API -- "Get/Put/UpdateItem" --> DDB
     API -- "FAULT con delay" --> FQ
     API -- "acciones del usuario" --> UQ
     API -- "GetObject escenarios" --> FILES
+    API -- "lock de sesión" --> REDIS
+    WRK -- "snapshots" --> REDIS
     FQ -- "long poll" --> INJ
     INJ -- "escala a 0 / borra pods" --> NSMOCK
     INJ -- "STARTING → INCIDENT_ACTIVE" --> DDB
@@ -68,16 +79,10 @@ flowchart LR
     WRK -- "RESOLVED + score" --> DDB
     ECR -. "pull de imágenes" .-> EKS
 
-    SPA -.-> CF
-    CF -.-> SITE
-    CF -. "/api/*" .-> ALB
-    SPA -.-> COG
     API -. "StartExecution" .-> SFN
     SFN -.-> FQ
     SFN -. "AWAIT_FIX" .-> UQ
-    API -.-> REDIS
     API -.-> ATH
     ATH -.-> FILES
 
-    class CLI,EDGE,EKS,NSAPP,NSINJ,NSMOCK,DATA group
-    class LEG group
+    class CLI,EDGE,VPC,PRIV,EKS,NSAPP,NSINJ,NSMOCK,DATA,LEG group
