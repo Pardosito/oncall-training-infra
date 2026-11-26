@@ -1,6 +1,6 @@
 # ARCHITECTURE §5.3. Not in k8s/base/kustomization.yaml on purpose: the overlays include this
-# directory themselves. local does (Calico enforces it on `make kind-up CALICO=1`); aws adds it
-# once INF-067 confirms on EKS that kubelet probes and ALB health checks still pass (O-04).
+# directory themselves. local (Calico enforces it on `make kind-up CALICO=1`) and aws (the VPC CNI
+# policy agent enforces it; probes and ALB health checks verified in INF-067).
 # All policies go in together, or the ALB and the health checks break.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
