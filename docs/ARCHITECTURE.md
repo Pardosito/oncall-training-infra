@@ -69,7 +69,7 @@ Browser ──► S3 site bucket: SPA on the website endpoint (HTTP)
 | HTTP API | `oncall-training` (API Gateway v2, D-33): CORS for `site_url` and `http://localhost:5173`; stage `$default` (auto-deploy, throttling `api_throttle_rate`/`api_throttle_burst`, JSON access logs to `/aws/apigateway/oncall-training`, 7 days). Routes, VPC link and JWT authorizer come from the cluster stack. Output `api_url` |
 | ECR | `oncall-training/backend`, `oncall-training/injector`, `oncall-training/mock-system` | Immutable tags, scan on push, lifecycle: keep the last 15 images |
 
-**Outputs** (consumed by the cluster stack, scripts and other repos' CI variables): `account_id`, `sessions_table`, `files_bucket`, `faults_queue_url`, `faults_dlq_url`, `user_actions_queue_url`, `user_actions_dlq_url`, `ecr_repository_urls`, `state_machine_arn`. Added with the Cognito and site resources (D-31): `cognito_user_pool_id`, `cognito_client_id`, `cognito_authority`, `cognito_domain`, `site_bucket`, `site_url`, `site_https_origin`. With the HTTP API (D-33): `api_id`, `api_url` (frontend `VITE_API_BASE_URL`). Planned: `athena_workgroup`, `glue_database`.
+**Outputs** (consumed by the cluster stack, scripts and other repos' CI variables): `account_id`, `sessions_table`, `files_bucket`, `faults_queue_url`, `faults_dlq_url`, `user_actions_queue_url`, `user_actions_dlq_url`, `ecr_repository_urls`, `state_machine_arn`. Added with the Cognito and site resources (D-31): `cognito_user_pool_id`, `cognito_client_id`, `cognito_authority`, `cognito_domain`, `site_bucket`, `site_url`, `site_https_origin`. With the HTTP API (D-33): `api_id`, `api_url` (frontend `VITE_API_BASE_URL`). (No Glue or Athena outputs: dropped, D-37.)
 
 ## 4. Cluster resources (`terraform/cluster`)
 

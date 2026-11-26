@@ -24,9 +24,9 @@ The app itself lives in [`oncall-training-backend`](https://github.com/Pardosito
 
 Un usuario inicia el escenario `orders-down`. El backend guarda la sesión en DynamoDB y manda una falla a SQS. El injector apaga el servicio `orders` del sistema simulado en EKS. El usuario ve el incidente en el dashboard, escala `orders` de vuelta y el worker detecta la recuperación, calcula el puntaje y marca la sesión `RESOLVED`.
 
-![Diagrama de la solución](docs/solucion.png)
+![Diagrama de la solución](docs/solucion.jpg)
 
-Todo lo que aparece está desplegado. Fuente editable en [`docs/solucion.mmd`](docs/solucion.mmd) (`make diagram`).
+Todo lo que aparece está desplegado. La versión detallada, con cada flujo etiquetado y los stacks de Terraform, está en [`docs/solucion.png`](docs/solucion.png) (fuente editable en [`docs/solucion.mmd`](docs/solucion.mmd), `make diagram`).
 
 ### Repositorios
 
@@ -40,7 +40,7 @@ Todo lo que aparece está desplegado. Fuente editable en [`docs/solucion.mmd`](d
 
 | # | Entregable | Dónde |
 |---|---|---|
-| 1 | Diagrama de la solución | [docs/solucion.png](docs/solucion.png) |
+| 1 | Diagrama de la solución | [docs/solucion.jpg](docs/solucion.jpg) (detallado: [docs/solucion.png](docs/solucion.png)) |
 | 2 | Modelo de datos | [docs/modelo-datos.md](docs/modelo-datos.md) |
 | 3 | Diseño de la API | [docs/api.md](docs/api.md) |
 | 4 | Código fuente | Backend + `Dockerfile`: [oncall-training-backend](https://github.com/Pardosito/oncall-training-backend) (`src/`, `Dockerfile`). Infraestructura y servicios: [`terraform/`](terraform), [`k8s/`](k8s), [`services/`](services) (con sus `Dockerfile`), [`scripts/`](scripts) |
