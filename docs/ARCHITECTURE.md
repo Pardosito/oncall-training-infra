@@ -3,7 +3,7 @@
 Living document, and the source of truth for every AWS resource, Kubernetes object and cross-repo contract this repo owns.
 Items marked **(planned)** aren't built yet. Items marked **(cross-repo)** are used by another repo; change them only together with that repo's owner.
 
-**Built and deployed today:** the foundation's S3 files bucket, DynamoDB `Sessions`, both SQS queues and ECR; the whole cluster stack except ElastiCache; the backend, injector and mock system on EKS behind the ALB. The incident loop runs in **direct mode** (§15). **Built, not yet deployed:** Cognito and the S3 site bucket (D-31). **Planned for the final delivery:** Step Functions, ElastiCache, Glue/Athena, NetworkPolicies on EKS (enforced on kind already, §5.3) and the GitHub workflows. The kind setup (§14) runs the mock system and the injector locally. The diagram in [`solucion.png`](solucion.png) shows the same split.
+**Built and deployed today:** the whole foundation except Glue/Athena: S3 files and site buckets, DynamoDB `Sessions`, both SQS queues, ECR, Cognito (Carbon managed login, self sign-up, D-34, D-35) and the HTTP API (D-33). The whole cluster stack: EKS, the internal ALB behind the API's VPC link, ElastiCache; the backend, injector and mock system on EKS. The SPA is on the S3 website. The incident loop runs in **direct mode** (§15). **Built, not yet used:** the Step Functions state machine (the backend still runs `ORCHESTRATION_MODE=direct`). **Planned for the final delivery:** Glue/Athena, NetworkPolicies on EKS (enforced on kind already, §5.3) and the GitHub workflows. The kind setup (§14) runs the mock system and the injector locally. The diagram in [`solucion.png`](solucion.png) shows the same split.
 
 ## 1. Overview
 
