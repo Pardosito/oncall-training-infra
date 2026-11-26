@@ -8,7 +8,7 @@ kind: Kustomization
 resources:
   - ../../base
   - targetgroupbinding-backend-api.yaml
-  - ../../base/networkpolicies   # enforced by the VPC CNI policy agent (INF-067, O-04)
+  - ../../base/networkpolicies # enforced by the VPC CNI policy agent (INF-067, O-04)
 
 configMapGenerator:
   - name: oncall-config
