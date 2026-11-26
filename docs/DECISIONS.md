@@ -45,9 +45,10 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-29 | 2026-11-21 | State machine error handling: retry only idempotent sends and writes, never `WaitForFix` or a failed condition; every path still sends `SESSION_ENDED` | Decided |
 | D-30 | 2026-11-21 | kind: the backend runs on the host, the injector reaches LocalStack through `host.docker.internal`; Calico uses pod range `10.244.0.0/16` | Decided |
 | D-31 | 2026-11-25 | No CloudFront: SPA on the S3 website endpoint, Cognito callbacks through HTTPS bounce pages on the same bucket, API on the ALB with CORS | Decided (replaces D-07/D-08 for the final delivery) |
-| D-32 | 2026-11-25 | ALB open to `0.0.0.0/0` on port 80; Cognito accounts created by admins only (`make users`), no self sign-up | Decided (open ALB superseded by D-33; admin-created accounts stay) |
+| D-32 | 2026-11-25 | ALB open to `0.0.0.0/0` on port 80; Cognito accounts created by admins only (`make users`), no self sign-up | Superseded (open ALB by D-33, admin-only accounts by D-35) |
 | D-33 | 2026-11-26 | API Gateway HTTP API (foundation, stable HTTPS URL, JWT, throttling, CORS) → VPC link → internal ALB owned by Terraform; pods registered with a TargetGroupBinding | Decided |
 | D-34 | 2026-11-26 | Managed login version 2 with Carbon g100 branding in Terraform, instead of a custom sign-in UI | Decided |
+| D-35 | 2026-11-26 | Self sign-up on the managed login page: username, email and password, email verified with a code | Decided |
 
 ---
 
@@ -208,6 +209,11 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 **Why:** the classic hosted UI looked nothing like the Carbon SPA. Managed login version 2 takes a branding document (colors, radii, scheme, logo, favicon) per app client.
 **How:** `aws_cognito_managed_login_branding.spa` loads `terraform/foundation/branding/carbon-g100.json`, Cognito's full default settings document transformed by `carbon-g100.jq` (g100 backgrounds `#161616`/`#262626`, primary `#0f62fe`, links `#78a9ff`, white focus, 0 radius, dark scheme). The domain moves to `managed_login_version = 2`. Sign-in, the forced new password on first login and forgot-password keep working with no SPA change.
 **Trade-off:** fonts (no IBM Plex) and layout stay Cognito's. A sign-in page built in the SPA with Carbon components would match exactly but replaces the redirect flow (about a day of work); a future improvement.
+
+### D-35 · Self sign-up with email verification
+**Why:** inviting every student by hand with `make users` doesn't scale for the course demo; users should create their own accounts.
+**How:** `allow_admin_create_user_only = false`. The managed login page (D-34) shows "Create an account": username, email, password. Cognito emails a code (`CONFIRM_WITH_CODE`) and the account stays UNCONFIRMED until it is entered, so every account has a verified email for password recovery. Email changes also need the code before they apply. Sign-in stays by username (switching to email sign-in would mean a new user pool). `make users` and `make e2e-user` keep working.
+**Trade-off:** anyone with the site URL can create an account and start a session, which holds the global session lock until it resolves or times out (D-32's reason for admin-only accounts). Bounded by the lock's TTL, the API throttling (D-33) and Cognito's default sender, about 50 emails a day. If abuse shows up: switch back to admin-only, or add a pre-sign-up Lambda that allows one email domain (needs a role, so not in the Learner Lab).
 
 ---
 
