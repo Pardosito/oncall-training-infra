@@ -92,6 +92,8 @@ resource "aws_apigatewayv2_integration" "alb" {
   timeout_milliseconds = 30000
 }
 
+# No OPTIONS route: with one, API Gateway would send preflights to the backend (which answers 401
+# without a token). Without it, API Gateway answers them from the API's CORS configuration.
 resource "aws_apigatewayv2_route" "api" {
   api_id             = local.api_id
   route_key          = "ANY /api/{proxy+}"
@@ -104,13 +106,5 @@ resource "aws_apigatewayv2_route" "api" {
 resource "aws_apigatewayv2_route" "healthz" {
   api_id    = local.api_id
   route_key = "GET /healthz"
-  target    = "integrations/${aws_apigatewayv2_integration.alb.id}"
-}
-
-# Preflights carry no token. API Gateway answers them from the API's CORS configuration; this
-# unauthenticated route only keeps the JWT authorizer of the ANY route out of their way.
-resource "aws_apigatewayv2_route" "preflight" {
-  api_id    = local.api_id
-  route_key = "OPTIONS /api/{proxy+}"
   target    = "integrations/${aws_apigatewayv2_integration.alb.id}"
 }

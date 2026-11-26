@@ -194,7 +194,7 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 **Why:** with no CloudFront (D-31) the browser called the ALB over HTTP at an address that changed on every `cluster-up`, and the ALB had to be open to the internet (D-32). D-28's "when to revisit" no longer held once CloudFront was gone.
 **How:**
 - **foundation:** HTTP API `oncall-training` with CORS for the site, stage `$default` with throttling (20 req/s, burst 40) and access logs. Its URL (`api_url`) never changes, so the frontend is built once. It costs per request only.
-- **cluster:** a VPC link in the private subnets, a Cognito JWT authorizer (rejects missing or bad tokens before the cluster), an `HTTP_PROXY` integration to an **internal ALB that Terraform creates**, and routes `ANY /api/{proxy+}` (JWT), `OPTIONS /api/{proxy+}` and `GET /healthz`.
+- **cluster:** a VPC link in the private subnets, a Cognito JWT authorizer (rejects missing or bad tokens before the cluster), an `HTTP_PROXY` integration to an **internal ALB that Terraform creates**, and routes `ANY /api/{proxy+}` (JWT) and `GET /healthz`. No `OPTIONS` route, so API Gateway answers preflights itself (with one, preflights reached the backend and got 401).
 - The AWS Load Balancer Controller only registers the backend-api pods in Terraform's target group through a `TargetGroupBinding`; there is no Ingress. `cluster-down` is a plain `terraform destroy` (replaces D-20).
 - Zones are chosen by zone ID and skip `use1-az3`, where VPC links aren't offered (found in the 2026-11-26 spike; zone names map differently in each account).
 - CORS lives in API Gateway only; the backend's `CORS_ORIGINS` stays unset (API Gateway ignores CORS headers from the integration).
