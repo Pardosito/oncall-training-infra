@@ -3,16 +3,18 @@
 Entregable 3 de la entrega intermedia. El contrato completo es el [`openapi.json` del backend](https://github.com/Pardosito/oncall-training-backend/blob/main/openapi/openapi.json) (se sirve también en `GET /api/openapi.json`).
 
 > [!IMPORTANT]
-> **Nuestra entrada no es API Gateway.** El backend corre en **EKS** (no en una EC2 suelta) y la API se expone con un **Application Load Balancer** que crea el AWS Load Balancer Controller desde un `Ingress` de Kubernetes. El ALB cumple el papel de API Gateway en la guía: recibe el request, lo pasa tal cual (equivalente a *HTTP proxy*) a los pods del backend y regresa la respuesta. Ver [DECISIONS D-28](DECISIONS.md#d-28--no-api-gateway) y la sección [¿Por qué ALB y no API Gateway?](#por-qué-alb-y-no-api-gateway).
+> **Actualización (2026-11-26): la entrada ahora es API Gateway.** En la entrega intermedia la API entraba por un ALB público. Ahora un **API Gateway HTTP API** recibe el request (HTTPS, CORS, valida el token de Cognito y aplica throttling) y lo pasa por un **VPC link** a un **ALB interno** que reenvía a los pods del backend en EKS ([DECISIONS D-33](DECISIONS.md#d-33--api-gateway-http-api-in-front-of-an-internal-alb)). No hay CloudFront porque el Learner Lab no lo permite (D-31), y las estadísticas salen de DynamoDB porque el rol del lab no puede usar Glue ni Athena (D-37).
 
 ## Flujo de un request
 
 ```mermaid
 flowchart LR
-    C["Cliente<br/>SPA (Vite) o Postman / curl"] -- HTTP :80 --> ALB["ALB oncall-training-api<br/>Ingress /api/*<br/>solo IPs de la demo"]
+    C["Cliente<br/>SPA en S3 o curl"] -- "HTTPS + Bearer token" --> GW["API Gateway HTTP API<br/>CORS · JWT Cognito · throttling"]
+    GW -- "VPC link" --> ALB["ALB interno<br/>subredes privadas"]
     ALB -- "proxy (IP target)" --> API["EKS · ns app<br/>backend-api ×2<br/>contenedor :3000"]
     API -- AWS SDK --> DDB[(DynamoDB<br/>Sessions)]
-    API -- SendMessage --> FQ[[SQS faults]]
+    API -- StartExecution --> SFN{{Step Functions}}
+    SFN -- SendMessage --> FQ[[SQS faults]]
     API -- SendMessage --> UQ[[SQS user-actions.fifo]]
     API -- GetObject --> S3[(S3 files<br/>scenarios/)]
     FQ --> INJ["injector"] --> MOCK["ns mock<br/>gateway → orders → worker-svc"]
@@ -25,20 +27,21 @@ La respuesta regresa por el mismo camino hasta el cliente. Las acciones del usua
 
 | | Valor |
 |---|---|
-| Entorno | `lab` (un solo entorno; equivale al stage `dev` de la guía) |
-| URL base | `http://<alb-dns>/api` donde `<alb-dns>` = `oncall-training-api-<id>.us-east-1.elb.amazonaws.com` |
-| Cómo obtenerla | `make status` o `kubectl -n app get ingress backend-api -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'` |
+| Stage | `$default` (un solo entorno, `lab`), con auto-deploy |
+| URL base | `https://<api-id>.execute-api.us-east-1.amazonaws.com/api` |
+| Cómo obtenerla | `terraform -chdir=terraform/foundation output -raw api_url` o `make status` |
+| Throttling | 20 requests/s, ráfagas de 40 (variables `api_throttle_rate` / `api_throttle_burst`) |
 
 > [!NOTE]
-> El DNS del ALB cambia cada vez que se recrea el cluster (Learner Lab), así que la URL de la demo se muestra en vivo con `make status`. Por eso no está fija en el código: la SPA la recibe en `API_PROXY_TARGET` y los scripts buscan el balanceador por su nombre fijo, `oncall-training-api`.
+> La API vive en el stack `foundation`, así que su URL no cambia cuando se destruye y se recrea el cluster. Mientras el cluster está apagado, las rutas no existen y la API responde 404.
 
 ## Recursos
 
-El `Ingress` publica solo dos rutas: el prefijo `/api` y `/healthz` (el health check del ALB). `/readyz` queda interno, para la readiness probe de Kubernetes.
+API Gateway publica una ruta por método (`GET|POST|PUT|PATCH|DELETE /api/{proxy+}`, con el token de Cognito) y `GET /healthz` sin token. No hay ruta `OPTIONS`: API Gateway contesta los preflight de CORS. `/readyz` queda interno, para la readiness probe de Kubernetes.
 
-**Integración:** proxy. El ALB reenvía método, ruta, headers, query string y cuerpo sin transformar; toda la validación (zod) vive en el backend, que es la única fuente del contrato (`openapi.json`). No hay mapping templates.
+**Integración:** HTTP proxy por VPC link al listener del ALB interno. Se reenvía método, ruta, headers, query string y cuerpo sin transformar; toda la validación (zod) vive en el backend, que es la única fuente del contrato (`openapi.json`). No hay mapping templates.
 
-**Autenticación en la entrega intermedia:** `AUTH_MODE=dev`, cada request manda `x-dev-user: <id>[:<nombre>]`. Cognito con `Authorization: Bearer <token>` es **planeado** para la final.
+**Autenticación:** `Authorization: Bearer <access token de Cognito>`. API Gateway rechaza con 401 un token ausente, vencido o de otro cliente, y el backend lo vuelve a validar. (En la entrega intermedia era `AUTH_MODE=dev` con el header `x-dev-user`.)
 
 | Recurso | Método | Integración | Destino | Request | Response esperada | Estado |
 |---|---|---|---|---|---|---|
@@ -51,9 +54,9 @@ El `Ingress` publica solo dos rutas: el prefijo `/api` y `/healthz` (el health c
 | `/api/sessions/{sessionId}/actions` | POST | proxy | `backend-api` POST `…/actions` → SQS `user-actions.fifo` | `{ type, target?, params? }` | 202 `{ actionId }`; 400; 409 `SESSION_NOT_ACTIVE`; 422 `ACTION_NOT_ALLOWED` | desplegado |
 | `/api/sessions/{sessionId}/logs?service=` | GET | proxy | `backend-api` GET `…/logs` → logs del pod en ns `mock` | `service` en el query | 200 `{ service, lines[] }`; 409; 422 | desplegado |
 | `/api/sessions/{sessionId}/abandon` | POST | proxy | `backend-api` POST `…/abandon` | — | 202; 404; 409 | desplegado |
-| `/api/me/sessions` | GET | proxy | `backend-api` | `limit`, `cursor` | 200 `{ items, nextCursor? }` | planeado |
-| `/api/me/stats/{queryName}` | GET | proxy | `backend-api` → Athena | `score-over-time` \| `ttd-ttr-by-attempt` | 200 `{ rows }`; 504 timeout de Athena | planeado |
-| `/api/leaderboard/{scenarioId}` | GET | proxy | `backend-api` → GSI `Leaderboard` | id en la ruta | 200 top 10 | planeado |
+| `/api/me/sessions` | GET | proxy | `backend-api` → DynamoDB | `limit`, `cursor` | 200 `{ items, nextCursor? }` | desplegado |
+| `/api/me/stats/{queryName}` | GET | proxy | `backend-api` → DynamoDB (sin Athena, D-37) | `score-over-time` \| `ttd-ttr-by-attempt` | 200 `{ rows }` | desplegado |
+| `/api/leaderboard/{scenarioId}` | GET | proxy | `backend-api` → GSI `Leaderboard` | id en la ruta | 200 top 10 | desplegado |
 
 ### Requests mal formados
 
@@ -68,14 +71,15 @@ Todos los errores tienen el mismo cuerpo, con un `requestId` que también llega 
 | JSON inválido | 400 `MALFORMED_JSON` | backend, middleware de Express |
 | Falta un campo o tiene otro tipo | 400 `VALIDATION_ERROR` | backend, esquema zod de la ruta |
 | Cuerpo > 100 kB / sin `Content-Type: application/json` | 413 / 415 | backend |
-| Sin `x-dev-user` (o token) | 401 `UNAUTHORIZED` | backend, middleware de auth |
+| Sin token o token inválido | 401 | API Gateway (authorizer JWT), y otra vez el backend |
+| Más de 20 requests/s | 429 | API Gateway (throttling) |
 | Ruta que no existe | 404 `NOT_FOUND` | backend |
 
 ## Pruebas (curl)
 
 ```bash
-API=http://<alb-dns>/api
-U='x-dev-user: demo:demo'
+API=$(terraform -chdir=terraform/foundation output -raw api_url)/api
+U="Authorization: Bearer $TOKEN"   # access token de Cognito
 
 # GET: escenarios disponibles
 curl -s "$API/scenarios" -H "$U"
@@ -102,7 +106,7 @@ curl -s -X POST "$API/sessions" -H "$U" -H 'Content-Type: application/json' -d '
 
 ### Respuestas reales
 
-Salida de los comandos de arriba contra el ALB `oncall-training-api` en EKS, el 2026-11-06 a las 04:56 UTC (backend `2688b14`). La salida completa está en [`evidencias/curl-pruebas.txt`](evidencias/curl-pruebas.txt).
+Salida de la entrega intermedia (con `x-dev-user`, contra el ALB público de entonces), el 2026-11-06 a las 04:56 UTC (backend `2688b14`). La salida completa está en [`evidencias/curl-pruebas.txt`](evidencias/curl-pruebas.txt).
 
 | Request | Status | Respuesta |
 |---|---|---|
@@ -128,14 +132,19 @@ Errores:
 | `POST …/actions` con `{"type":"DELETE_EVERYTHING"}` | 400 | `{"error":{"code":"VALIDATION_ERROR",…,"details":{"issues":[{"path":"type","message":"Invalid discriminator value. Expected 'ACKNOWLEDGE' \| 'RESTART_DEPLOYMENT' \| 'SCALE_DEPLOYMENT'"}]}}}` |
 | `GET /scenarios` sin `x-dev-user` | 401 | `{"error":{"code":"UNAUTHORIZED","message":"Send x-dev-user: <id>[:<username>] (dev auth).","requestId":"…"}}` |
 
-## ¿Por qué ALB y no API Gateway?
+## De ALB a API Gateway
 
-| | ALB + Ingress (elegido) | API Gateway |
+En la entrega intermedia elegimos un ALB sin API Gateway (D-28): CloudFront iba a ser la entrada con HTTPS y el ALB solo enrutaba a los pods. Dos cosas cambiaron:
+
+1. **CloudFront no está permitido en el Learner Lab** (D-31), así que no había HTTPS ni una URL fija para la API.
+2. **El ALB público** cambiaba de DNS con cada `cluster-up` y estaba expuesto a internet (al principio limitado a las IPs de la demo).
+
+Con **API Gateway HTTP API** (D-33) la URL es HTTPS y fija (vive en `foundation`), los tokens se validan antes de entrar a la VPC, hay throttling y CORS administrados, y el ALB pasa a ser **interno** (solo lo alcanza el VPC link). Terraform crea el ALB y el target group; el AWS Load Balancer Controller solo registra las IPs de los pods con un `TargetGroupBinding`, así que `make cluster-down` es un `terraform destroy` sin pasos manuales.
+
+| | Antes (ALB público) | Ahora (API Gateway → ALB interno) |
 |---|---|---|
-| Cómo llega a los pods | Directo a las IPs de los pods (`target-type: ip`); el controller actualiza los targets cuando Kubernetes reprograma pods | Necesita un ALB o NLB interno igual, más un VPC Link |
-| Infraestructura como código | Lo declara el `Ingress` en `k8s/overlays/aws`, junto con el resto de los manifiestos | Recursos aparte en Terraform que hay que mantener en sincronía con el cluster |
-| Validación y contrato | En el backend con zod, fuente única en `openapi.json` | Se duplicaría en modelos de API Gateway |
-| Costo | ≈ $0.025/h, solo mientras el cluster está arriba | Por request, más el balanceador que de todos modos hace falta |
-| Desventaja | Sin throttling, API keys ni stages integrados; HTTP en la entrega intermedia | — |
-
-En la final, CloudFront se pone delante (`/api/*` → ALB) para tener HTTPS y una sola URL con el sitio (ver [pendientes](pendientes.md)).
+| URL | `http://<alb-dns>`, cambia con cada cluster | `https://<api-id>.execute-api…`, fija |
+| Autenticación | solo en el backend | JWT en API Gateway y en el backend |
+| Throttling | ninguno | 20/s, ráfagas de 40 |
+| Exposición del ALB | internet (o IPs de la demo) | interno, solo el VPC link |
+| Costo extra | — | $1 por millón de requests; el VPC link es gratis |

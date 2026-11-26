@@ -10,9 +10,9 @@ Entregable 2 de la entrega intermedia. La fuente de verdad del item es la [ARCHI
 | Escrituras concurrentes | Cada transición de estado es un `UpdateItem` condicional (`#state = :expected`), así que mensajes duplicados o tardíos no regresan una sesión | Requiere transacciones o locks a mano |
 | Costo en Learner Lab | On-demand: centavos al día y nada encendido cuando no se usa | Una instancia cobra por hora aunque nadie la use |
 | Operación | Sin servidor, sin VPC, sin parches; los pods lo usan con LabRole | Subredes privadas, security groups, credenciales que guardar |
-| Analítica | Los eventos históricos van a S3 + Athena, no a la tabla | Tentaría a hacer reportes sobre la base transaccional |
+| Analítica | Las estadísticas se calculan con un `Query` por usuario; Athena quedó fuera porque el rol del lab no puede usarlo (D-37) | Habría que hacer reportes sobre la base transaccional |
 
-**Desventaja aceptada:** no hay consultas flexibles. Cada consulta nueva necesita su llave o un GSI. En la entrega intermedia hay una excepción temporal: un `Scan` filtrado para saber si ya hay una sesión activa, que se reemplaza por un lock en Redis en la entrega final (backend D-30).
+**Desventaja aceptada:** no hay consultas flexibles. Cada consulta nueva necesita su llave o un GSI. En la entrega intermedia había una excepción temporal, un `Scan` filtrado para saber si ya había una sesión activa; ahora lo reemplaza un lock en Redis (ElastiCache).
 
 ## Tabla `Sessions`
 
@@ -37,7 +37,7 @@ On-demand, PITR activado, protección contra borrado.
 | `wrong_actions`, `actions_count` | N | worker | `ADD` atómico |
 | `score`, `ttd_seconds`, `ttr_seconds` | N | worker (intermedia) / Step Functions (final) | solo si `RESOLVED` |
 | `ended_at`, `failure_reason` | S | worker (intermedia) / Step Functions (final) | `TIMEOUT`, `ABANDONED`, `ERROR` |
-| `execution_arn`, `task_token` | S | api / Step Functions | **planeado** (final) |
+| `execution_arn`, `task_token` | S | api / Step Functions | desplegado |
 
 ### GSI `Leaderboard`
 
@@ -76,8 +76,8 @@ Proyección `ALL`. Es un índice *sparse*: solo los items `RESOLVED` tienen `sco
 | # | Consulta | Operación | Quién la usa |
 |---|---|---|---|
 | 1 | Una sesión de un usuario | `GetItem(user_id, session_id)` (consistente) | `GET /api/sessions/{id}`, el dashboard, el injector antes de aplicar la falla |
-| 2 | Historial del usuario, más reciente primero | `Query(user_id = :u, ScanIndexForward = false)`, paginado con `LastEvaluatedKey` | `GET /api/me/sessions` (**planeado**) |
-| 3 | Top 10 de un escenario | `Query` sobre GSI `Leaderboard` (`scenario_id = :s`, descendente, `Limit 10`) | `GET /api/leaderboard/{scenarioId}` (**planeado**) |
+| 2 | Historial del usuario, más reciente primero | `Query(user_id = :u, ScanIndexForward = false)`, paginado con `LastEvaluatedKey` | `GET /api/me/sessions` (desplegado) |
+| 3 | Top 10 de un escenario | `Query` sobre GSI `Leaderboard` (`scenario_id = :s`, descendente, `Limit 10`) | `GET /api/leaderboard/{scenarioId}` (desplegado) |
 
 Leer siempre con `PK = usuario que llama` hace que la sesión de otro usuario responda **404**: nunca revelamos que existe.
 
@@ -86,8 +86,8 @@ Leer siempre con `PK = usuario que llama` hace que la sesión de otro usuario re
 | Dónde | Qué | Estado |
 |---|---|---|
 | S3 `oncall-training-files-<acct>/scenarios/` | Definiciones de escenarios (`orders-down.json`), las sube el release del backend | desplegado |
-| S3 `…/logs/year=/month=/day=/` | Un evento por línea por sesión, para Athena | planeado |
-| Glue `session_events` + Athena | Gráficas de desempeño | planeado |
-| ElastiCache (Valkey) | Lock global, snapshots del dashboard | planeado |
+| S3 `…/logs/year=/month=/day=/` | Un archivo NDJSON por sesión con sus eventos | desplegado |
+| Glue `session_events` + Athena | Gráficas de desempeño | **descartado** (el rol del lab no puede usarlos, D-37); las gráficas leen DynamoDB |
+| ElastiCache (Valkey) | Lock global, snapshots del dashboard | desplegado |
 
-El bucket usa prefijos (`scenarios/`, `logs/`, `athena-results/`) y una regla de lifecycle que borra `athena-results/` a los 7 días.
+El bucket usa los prefijos `scenarios/` y `logs/`.

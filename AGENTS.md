@@ -10,7 +10,7 @@
 
 ## 1. The project in one paragraph
 
-**On-Call Training** is a web app where students and junior SDE/SREs practice handling a production incident. A user starts a **scenario**. A real (mock) distributed system runs in EKS, and a fault is injected into it. The user diagnoses the problem from a live dashboard and fixes it with predefined actions. The system detects recovery, scores the attempt and stores it. Users then review their performance in charts built from Athena queries.
+**On-Call Training** is a web app where students and junior SDE/SREs practice handling a production incident. A user starts a **scenario**. A real (mock) distributed system runs in EKS, and a fault is injected into it. The user diagnoses the problem from a live dashboard and fixes it with predefined actions. The system detects recovery, scores the attempt and stores it. Users then review their performance in charts built from their session history in DynamoDB.
 
 ITESO course project, team **Cafeinomanos**: **Ian Rodríguez** (infra and orchestration, **owner of this repo**) and Juan Pablo González (application and data). It is also meant to be a CV-quality project.
 
@@ -22,7 +22,7 @@ ITESO course project, team **Cafeinomanos**: **Ian Rodríguez** (infra and orche
 | `oncall-training-backend` | API + worker code, its Dockerfile, scenarios, `openapi.json`. Pushes its image to ECR. |
 | `oncall-training-frontend` | React SPA. Deploys its build to the S3 site bucket created here. |
 
-**Not in this repo:** backend or frontend code, scenario definitions, Athena named queries (they live in the backend's `stats` module). This repo provides the resources they use.
+**Not in this repo:** backend or frontend code, scenario definitions, the stats queries (DynamoDB, in the backend's `stats` module). This repo provides the resources they use.
 
 ## 3. MVP scope
 
@@ -57,10 +57,10 @@ Out of scope unless the team asks: multiple environments (dev/stage/prod), custo
 | Network policy | Amazon VPC CNI with network policy enforcement enabled |
 | Orchestration | **AWS Step Functions**, Standard workflow, **JSONata** |
 | Queues | SQS `faults` (standard) + DLQ; `user-actions.fifo` + DLQ |
-| Data | DynamoDB `Sessions`, S3 (`files`, `site`), Glue table with partition projection, Athena workgroup |
+| Data | DynamoDB `Sessions` (stats and leaderboard read it directly), S3 (`files`, `site`). Glue/Athena dropped: the lab role can't use them (D-37) |
 | Cache | **ElastiCache** Valkey, single small node, TLS on |
 | Auth | Cognito User Pool, managed login, public app client (code flow; PKCE only on HTTPS/localhost, D-31) |
-| Site and auth | S3 website endpoint (SPA, HTTP) + HTTPS REST endpoint for the Cognito pages; the SPA calls the HTTP API (D-31, D-33; CloudFront is a future improvement, F-03) |
+| Site and auth | S3 website endpoint (SPA, HTTP) + HTTPS REST endpoint for the Cognito pages; the SPA calls the HTTP API (D-31, D-33). No CloudFront: the lab doesn't allow it (D-31; future improvement F-03) |
 | Images | Amazon ECR, tags = git SHA, immutable |
 | Services here | **TypeScript / Node 22** (injector, mock system), pnpm workspace, Vitest |
 | Local | **kind** (+ optional Calico for NetworkPolicies), LocalStack from the backend's docker-compose |
@@ -95,7 +95,7 @@ oncall-training-infra/
 ├── docs/                    ARCHITECTURE.md · CONVENTIONS.md · DECISIONS.md
 ├── terraform/
 │   ├── bootstrap/           state bucket (local state, run once)
-│   ├── foundation/          cheap, always on: S3, DynamoDB, Cognito, ECR, SQS, Step Functions, Glue/Athena
+│   ├── foundation/          cheap, always on: S3, DynamoDB, Cognito, HTTP API, ECR, SQS, Step Functions
 │   ├── cluster/             expensive, ephemeral: VPC, EKS, node group, add-ons, LB controller, ElastiCache
 │   └── modules/             small local modules only when reused (e.g. queue-with-dlq)
 ├── statemachines/
@@ -133,7 +133,7 @@ oncall-training-infra/
 | Thu Oct 29 | EKS up; backend, mock system and injector running in separate namespaces; injector kills and the system can be revived |
 | Thu Nov 5 | **MVP:** one incident loop on EKS (start → fault → fix → resolved) without Step Functions, ElastiCache, Cognito or the CDN (DECISIONS D-25, ARCHITECTURE §15) |
 | Thu Nov 19 | Step Functions + both SQS queues integrated; ElastiCache serving the dashboard; the MVP shortcuts replaced |
-| Thu Nov 26 | Glue/Athena ready for the charts; e2e happy path on the deployed stack |
+| Thu Nov 26 | e2e happy path on the deployed stack (Glue/Athena dropped, D-37; charts read DynamoDB) |
 
 ## 10. Glossary
 

@@ -7,7 +7,7 @@ This repo holds:
 - **Kubernetes manifests** (Kustomize) for all workloads, including the backend's
 - the **injector** and the **mock system**, two small TypeScript services
 - the `make` targets that build images, bring the cluster up and down, and roll out releases
-- *(planned)* the **Step Functions** state machine that drives a scenario, and the GitHub workflows
+- the **Step Functions** state machine that drives a scenario
 
 The app itself lives in [`oncall-training-backend`](https://github.com/Pardosito/oncall-training-backend) and [`oncall-training-frontend`](https://github.com/Pardosito/oncall-training-frontend).
 
@@ -26,7 +26,7 @@ Un usuario inicia el escenario `orders-down`. El backend guarda la sesión en Dy
 
 ![Diagrama de la solución](docs/solucion.png)
 
-Verde: desplegado. Gris punteado: planeado para la entrega final. Fuente editable en [`docs/solucion.mmd`](docs/solucion.mmd) (`make diagram`).
+Todo lo que aparece está desplegado. Fuente editable en [`docs/solucion.mmd`](docs/solucion.mmd) (`make diagram`).
 
 ### Repositorios
 
@@ -47,7 +47,15 @@ Verde: desplegado. Gris punteado: planeado para la entrega final. Fuente editabl
 | 5 | Evidencia de despliegue | [docs/evidencias/](docs/evidencias/README.md) |
 | 6 | Pendientes | [docs/pendientes.md](docs/pendientes.md) |
 
-**Diferencias con la estructura sugerida.** El backend corre como contenedor, pero en **EKS** en lugar de una EC2 suelta, y la API entra por un **ALB** en lugar de API Gateway ([DECISIONS D-28](docs/DECISIONS.md#d-28--no-api-gateway), [api.md](docs/api.md#por-qué-alb-y-no-api-gateway)). Los recursos se crean con **Terraform** en lugar de scripts boto3, así que todo se puede volver a crear con un comando. Ninguna llave, contraseña, ARN ni id de cuenta está en el código: las credenciales del lab se cargan con `make creds` y los valores de cada cuenta salen de los outputs de Terraform.
+### Cambios respecto al diseño original
+
+| Cambio | Por qué | Decisión |
+|---|---|---|
+| **Se agregó API Gateway** (HTTP API) delante de un ALB interno: URL HTTPS fija, CORS, validación del token de Cognito y throttling antes de llegar al cluster | La URL del ALB cambiaba con cada `cluster-up` y el ALB quedaba expuesto a internet | [D-33](docs/DECISIONS.md#d-33--api-gateway-http-api-in-front-of-an-internal-alb) |
+| **Sin CloudFront**: la SPA se sirve desde el website endpoint de S3 (HTTP) | El Learner Lab no permite CloudFront | [D-31](docs/DECISIONS.md#d-31--s3-website-instead-of-cloudfront) |
+| **Sin Glue ni Athena**: las estadísticas y el ranking salen directo de DynamoDB | El rol del Learner Lab no puede usar Glue ni Athena | [D-37](docs/DECISIONS.md#d-37--glue-and-athena-dropped) |
+
+**Diferencias con la estructura sugerida.** El backend corre como contenedor, pero en **EKS** en lugar de una EC2 suelta. La API entra por **API Gateway**, que llega a los pods por un VPC link y un ALB interno ([api.md](docs/api.md)). Los recursos se crean con **Terraform** en lugar de scripts boto3, así que todo se puede volver a crear con un comando. Ninguna llave, contraseña, ARN ni id de cuenta está en el código: las credenciales del lab se cargan con `make creds` y los valores de cada cuenta salen de los outputs de Terraform.
 
 ### Cómo correrlo
 
