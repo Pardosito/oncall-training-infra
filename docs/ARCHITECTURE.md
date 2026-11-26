@@ -369,19 +369,17 @@ Runs the mock system and the injector in kind; the backend runs on the host (DEC
 - The backend on the host talks to kind with `MOCK_CLUSTER=kubernetes` and the kind kubeconfig. The mock services' health URLs (`*.mock.svc.cluster.local`) aren't reachable from the host, so the backend needs a port-forward or its own local override for them.
 - The local state machine: the backend keeps a copy at `local/statemachine.asl.json`. When `statemachines/scenario.asl.json` changes, tell the backend owner (or open a PR there).
 
-## 15. Current deployment: direct mode
+## 15. Direct mode (fallback)
 
-What runs today, until the planned services above are in place (DECISIONS D-25). The contracts in §6–9 don't change; only who does each step.
+Since 2026-11-26 `render-config` defaults to `ORCHESTRATION_MODE=stepfunctions`: the state machine (§6) sends `FAULT`, waits for the fix with the `AWAIT_FIX` token, writes the end state and sends `SESSION_ENDED` (backend D-32). `ORCHESTRATION_MODE=direct make render-config` (then `make deploy`) switches back to the Nov 5 MVP path, kept as a fallback (D-25). The contracts in §6–9 are the same in both modes; only who does each step changes.
 
-| Final design | Today |
-|---|---|
-| The state machine sends `FAULT` to `faults` after `Warmup` (§6) | The backend api sends the same `FAULT` (§7) to `faults` itself, with `DelaySeconds` for the warmup (backend D-24) |
-| `PersistResolved` / `MarkFailed` write the end state; `SESSION_ENDED` triggers the reset | The backend worker writes `RESOLVED` / `FAILED` and resets the mock system |
-| ElastiCache: lock, dashboard snapshots, event buffer | None. One demo user; the api builds the dashboard on each request |
-| Cognito | `AUTH_MODE=cognito` (`render-config.sh` writes it from the foundation outputs); `AUTH_MODE=dev` with `ALLOW_DEV_AUTH=true` only when they're missing. Frontend: `VITE_AUTH_MODE=dev` today |
-| Browser → HTTP API → internal ALB (§11, D-33) | The SPA's Vite dev proxy → ALB (`API_PROXY_TARGET`, frontend D-18) |
+| Step | `stepfunctions` (default) | `direct` (fallback) |
+|---|---|---|
+| Send `FAULT` after the warmup | `Warmup` + `InjectFault` (§6) | the backend api, with `DelaySeconds` for the warmup (backend D-24) |
+| Wait for the fix | `WaitForFix` (`AWAIT_FIX` token; the worker answers with `SendTaskSuccess`/`SendTaskFailure`) | the backend worker's monitor |
+| Write `RESOLVED` / `FAILED` | `PersistResolved` / `MarkFailed` | the backend worker |
+| Timeouts | `WaitForFix` after `maxResolveSeconds` → `FAILED`/`TIMEOUT` | the worker's monitor (backend D-31) |
+| Reset the mock system | the worker, on `SESSION_ENDED` | the worker, after writing the end state |
 
-- **Config:** the backend gets `ORCHESTRATION_MODE=direct` and `FAULTS_QUEUE_URL`, plus the auth switch of §5.4. `REDIS_URL` (backend and injector) appears once the cluster stack with ElastiCache is applied: `render-config.sh` writes it from `redis_endpoint`, and both services then switch to the Redis lock, event log and snapshots.
-- The api needs `sqs:SendMessage` on `faults`; LabRole allows it.
-- Step Functions is deployed but not used yet: `render-config` writes `STATE_MACHINE_ARN`, and `ORCHESTRATION_MODE=stepfunctions make render-config` switches the backend once it handles `AWAIT_FIX`.
-- Not deployed yet: ElastiCache, Cognito, the site bucket and NetworkPolicies.
+- **Config:** `stepfunctions` needs `STATE_MACHINE_ARN` (from the foundation outputs); `direct` needs `FAULTS_QUEUE_URL`. `render-config` writes both.
+- The api needs `states:StartExecution` and the worker `states:SendTaskSuccess`/`SendTaskFailure`; LabRole allows them.

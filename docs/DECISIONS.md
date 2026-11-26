@@ -38,7 +38,7 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-22 | 2026-10-22 | The e2e Cognito user is created by a script, not Terraform | Decided (answers frontend O-04) |
 | D-23 | 2026-10-22 | Docs written in English | Decided |
 | D-24 | 2026-10-27 | S3 buckets use `awscc_s3_bucket` (Cloud Control), not `aws_s3_bucket` | Decided (forced by Learner Lab) |
-| D-25 | 2026-10-27 | Nov 5 MVP: one incident loop on EKS without Step Functions, ElastiCache, Cognito or CloudFront | Decided (temporary until Nov 19) |
+| D-25 | 2026-10-27 | Nov 5 MVP: one incident loop on EKS without Step Functions, ElastiCache, Cognito or CloudFront | Superseded (D-31, D-33, D-36); direct mode kept as a fallback |
 | D-26 | 2026-11-01 | EKS access: one explicit access entry for the lab role; no automatic creator entry | Decided |
 | D-27 | 2026-11-01 | Image tags and account-specific values reach the aws overlay through Kustomize replacements | Decided |
 | D-28 | 2026-11-05 | No API Gateway: CloudFront is the edge, the ALB routes to the pods | Superseded by D-33 |
@@ -49,6 +49,7 @@ Add a new entry whenever something is decided or changed; don't rewrite history.
 | D-33 | 2026-11-26 | API Gateway HTTP API (foundation, stable HTTPS URL, JWT, throttling, CORS) → VPC link → internal ALB owned by Terraform; pods registered with a TargetGroupBinding | Decided |
 | D-34 | 2026-11-26 | Managed login version 2 with Carbon g100 branding in Terraform, instead of a custom sign-in UI | Decided |
 | D-35 | 2026-11-26 | Self sign-up on the managed login page: username, email and password, email verified with a code | Decided |
+| D-36 | 2026-11-26 | Step Functions runs every scenario: `render-config` defaults to `ORCHESTRATION_MODE=stepfunctions`; direct mode is a fallback | Decided |
 
 ---
 
@@ -214,6 +215,11 @@ All are implemented as described in ARCHITECTURE §6–7 and §11.
 **Why:** inviting every student by hand with `make users` doesn't scale for the course demo; users should create their own accounts.
 **How:** `allow_admin_create_user_only = false`. The managed login page (D-34) shows "Create an account": username, email, password. Cognito emails a code (`CONFIRM_WITH_CODE`) and the account stays UNCONFIRMED until it is entered, so every account has a verified email for password recovery. Email changes also need the code before they apply. Sign-in stays by username (switching to email sign-in would mean a new user pool). `make users` and `make e2e-user` keep working.
 **Trade-off:** anyone with the site URL can create an account and start a session, which holds the global session lock until it resolves or times out (D-32's reason for admin-only accounts). Bounded by the lock's TTL, the API throttling (D-33) and Cognito's default sender, about 50 emails a day. If abuse shows up: switch back to admin-only, or add a pre-sign-up Lambda that allows one email domain (needs a role, so not in the Learner Lab).
+
+### D-36 · Step Functions as the default orchestration
+**Why:** the backend has handled `AWAIT_FIX` since backend D-32, so the reason for direct mode (D-25) is gone. The state machine owns the warmup, the timeout and the end state, and its execution history shows each session step by step.
+**How:** `render-config.sh` defaults `ORCHESTRATION_MODE` to `stepfunctions`; `ORCHESTRATION_MODE=direct make render-config` and `make deploy` switch back (ARCHITECTURE §15). No Terraform change: the state machine was already in foundation.
+**Verified on EKS (2026-11-26, backend 3766f39):** resolve (InjectFault → WaitForFix → PersistResolved → NotifyEnded, score written by the state machine); abandon after the fault (`SendTaskFailure` → MarkFailed → `FAILED`/`ABANDONED`, mock system reset); abandon during the warmup (session ends at once, the injector skips the FAULT, the execution still ends on the failure branch); timeout after `maxResolveSeconds` (`FAILED`/`TIMEOUT`).
 
 ---
 
