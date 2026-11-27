@@ -129,6 +129,16 @@ Open the site URL (`terraform -chdir=terraform/foundation output site_url`), cre
 | `make check-rbac` | Verify every service account can do exactly what it should |
 | `make diagram` | Re-render `docs/solucion.png` from `docs/solucion.mmd` |
 
+## Changes from the original design
+
+| Change | Why | Decision |
+|---|---|---|
+| **API Gateway added** (HTTP API) in front of an internal ALB | The ALB's URL changed with every `cluster-up` and the ALB was exposed to the internet | [D-33](docs/DECISIONS.md#d-33--api-gateway-http-api-in-front-of-an-internal-alb) |
+| **No CloudFront**: the SPA is served from the S3 website endpoint | The Learner Lab doesn't allow CloudFront | [D-31](docs/DECISIONS.md#d-31--s3-website-instead-of-cloudfront) |
+| **No Glue or Athena**: stats and leaderboards come straight from DynamoDB | The lab role can't use Glue or Athena | [D-37](docs/DECISIONS.md#d-37--glue-and-athena-dropped) |
+
+Compared with the course's suggested structure, the backend runs as a container on **EKS** instead of a standalone EC2 instance, the API is reached through **API Gateway** ([docs/api.md](docs/api.md)), and every resource is created with **Terraform** instead of boto3 scripts, so the whole stack can be recreated with one command. No keys, passwords, ARNs or account IDs are in the code: lab credentials are loaded with `make creds` and per-account values come from Terraform outputs.
+
 ## Limitations
 
 Most of these come from the AWS Academy Learner Lab, not from design choices. Each one is tracked in [DECISIONS.md](docs/DECISIONS.md#3-current-limitations) with its mitigation.
@@ -169,91 +179,20 @@ docs/               architecture, conventions, decisions, API, data model, diagr
 | Read | For |
 |---|---|
 | [AGENTS.md](AGENTS.md) | Scope, Learner Lab constraints, stack, commands, rules for contributors |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Every AWS resource, the cluster layout, the state machine, the message contracts, operations, cost |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Every AWS resource, the cluster layout, the state machine, the message contracts, cost, and the operations runbooks (§13) |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Every decision and why, known limitations, future improvements |
 | [docs/CONVENTIONS.md](docs/CONVENTIONS.md) | How Terraform, manifests, services, scripts and workflows are written |
-| [docs/api.md](docs/api.md) · [docs/modelo-datos.md](docs/modelo-datos.md) | API design and the DynamoDB data model (course deliverables, in Spanish) |
 | [docs/BACKLOG.md](docs/BACKLOG.md) · [docs/planning/](docs/planning/README.md) | Issues by milestone, roadmap and changelog |
 
-## Entrega del curso · Desarrollo en la Nube (ITESO, Otoño 2026)
+### Course deliverables
 
-**Proyecto:** On-Call Training · **Equipo:** Cafeinomanos
+The ITESO course deliverables (some written in Spanish, as the course requires):
 
-| Integrante | Rol |
-|---|---|
-| Ian Rodríguez | Infraestructura y orquestación (este repo) |
-| Juan Pablo González | Backend y frontend |
-
-| # | Entregable | Dónde |
+| # | Deliverable | Where |
 |---|---|---|
-| 1 | Diagrama de la solución | [docs/solucion.jpg](docs/solucion.jpg) (detallado: [docs/solucion.png](docs/solucion.png), fuente en [docs/solucion.mmd](docs/solucion.mmd)) |
-| 2 | Modelo de datos | [docs/modelo-datos.md](docs/modelo-datos.md) |
-| 3 | Diseño de la API | [docs/api.md](docs/api.md) |
-| 4 | Código fuente | Backend + `Dockerfile`: [oncall-training-backend](https://github.com/Pardosito/oncall-training-backend). Infraestructura y servicios: [`terraform/`](terraform), [`k8s/`](k8s), [`services/`](services) (con sus `Dockerfile`), [`scripts/`](scripts) |
-| 5 | Evidencia de despliegue | [docs/evidencias/](docs/evidencias/README.md) |
-| 6 | Pendientes | [docs/pendientes.md](docs/pendientes.md) |
-
-### Cambios respecto al diseño original
-
-| Cambio | Por qué | Decisión |
-|---|---|---|
-| **Se agregó API Gateway** (HTTP API) delante de un ALB interno: URL HTTPS fija, CORS, validación del token de Cognito y throttling antes de llegar al cluster | La URL del ALB cambiaba con cada `cluster-up` y el ALB quedaba expuesto a internet | [D-33](docs/DECISIONS.md#d-33--api-gateway-http-api-in-front-of-an-internal-alb) |
-| **Sin CloudFront**: la SPA se sirve desde el website endpoint de S3 (HTTP) | El Learner Lab no permite CloudFront | [D-31](docs/DECISIONS.md#d-31--s3-website-instead-of-cloudfront) |
-| **Sin Glue ni Athena**: las estadísticas y el ranking salen directo de DynamoDB | El rol del Learner Lab no puede usar Glue ni Athena | [D-37](docs/DECISIONS.md#d-37--glue-and-athena-dropped) |
-
-**Diferencias con la estructura sugerida.** El backend corre como contenedor, pero en **EKS** en lugar de una EC2 suelta. La API entra por **API Gateway**, que llega a los pods por un VPC link y un ALB interno ([api.md](docs/api.md)). Los recursos se crean con **Terraform** en lugar de scripts boto3, así que todo se puede volver a crear con un comando. Ninguna llave, contraseña, ARN ni id de cuenta está en el código: las credenciales del lab se cargan con `make creds` y los valores de cada cuenta salen de los outputs de Terraform.
-
-## Operations
-
-### Recovering the bootstrap state
-
-The `bootstrap` stack keeps its state locally (`terraform/bootstrap/terraform.tfstate`, gitignored), because it creates the bucket every other stack stores its state in. If that file is lost (new laptop, fresh clone), the bucket is still there, so **don't** run `make bootstrap` again: it would try to create a bucket that already exists. Import it instead:
-
-```bash
-cd terraform/bootstrap
-terraform init
-BUCKET="oncall-training-tfstate-$(aws sts get-caller-identity --query Account --output text)"
-terraform import awscc_s3_bucket.state "$BUCKET"
-terraform plan   # should say "No changes"
-cd ../.. && make backend-config   # rewrite foundation/ and cluster/ backend.hcl
-```
-
-### Switching to a new lab account
-
-Everything is per account: the state bucket, the foundation resources and the images. After `make creds` with a different account:
-
-```bash
-make bootstrap           # archives the old local state to terraform/bootstrap/archive/<old account>/,
-                         # creates this account's state bucket and rewrites both backend.hcl
-make foundation-apply    # files bucket, Sessions, queues, Cognito, API Gateway, ECR (empty)
-make images              # the injector and mock-system images don't carry over
-```
-
-Then run the backend's Release workflow so its image and scenarios exist in the new account, and redeploy the frontend with the new foundation outputs. If `backend.hcl` still points at another account's bucket, every foundation/cluster target stops with a message saying so.
-
-### Demo: inject a fault by hand
-
-```bash
-make cluster-up && make deploy BACKEND_TAG=<sha>
-make check-rbac                # every line "ok"
-kubectl -n mock port-forward svc/gateway 8080:8080 &
-curl -s localhost:8080/health  # {"status":"up",...}
-
-# Send a FAULT by hand (ARCHITECTURE §7). The injector only applies faults for a session in
-# STARTING, so create a throwaway session item first.
-aws dynamodb put-item --table-name Sessions --item \
-  '{"user_id":{"S":"demo"},"session_id":{"S":"demo"},"state":{"S":"STARTING"}}'
-QUEUE=$(terraform -chdir=terraform/foundation output -raw faults_queue_url)
-aws sqs send-message --queue-url "$QUEUE" --message-body \
-  '{"faultId":"demo-1","sessionId":"demo","userId":"demo","type":"SCALE_TO_ZERO","target":{"namespace":"mock","deployment":"orders"}}'
-
-kubectl -n mock get deploy orders          # 0/0
-curl -s localhost:8080/health              # 503 {"status":"down","reason":"ECONNREFUSED ..."}
-kubectl -n injector logs deploy/injector   # "scaled to zero"
-
-kubectl -n mock scale deploy/orders --replicas=2   # the fix
-curl -s localhost:8080/health              # up again
-aws dynamodb delete-item --table-name Sessions --key '{"user_id":{"S":"demo"},"session_id":{"S":"demo"}}'
-
-make cluster-down              # always
-```
+| 1 | Solution diagram | [docs/solucion.jpg](docs/solucion.jpg) (detailed: [docs/solucion.png](docs/solucion.png), source [docs/solucion.mmd](docs/solucion.mmd)) |
+| 2 | Data model | [docs/modelo-datos.md](docs/modelo-datos.md) |
+| 3 | API design | [docs/api.md](docs/api.md) |
+| 4 | Source code | Backend and its `Dockerfile`: [oncall-training-backend](https://github.com/Pardosito/oncall-training-backend). Infrastructure and services: [`terraform/`](terraform), [`k8s/`](k8s), [`services/`](services) (with their `Dockerfile`s), [`scripts/`](scripts) |
+| 5 | Deployment evidence | [docs/evidencias/](docs/evidencias/README.md) |
+| 6 | Pending work | [docs/pendientes.md](docs/pendientes.md) |
