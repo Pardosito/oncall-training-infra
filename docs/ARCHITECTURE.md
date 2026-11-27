@@ -344,6 +344,59 @@ No CDN. The browser uses three paths:
 | S3, DynamoDB on-demand, SQS, Step Functions, Cognito, HTTP API (per request), ECR storage | cents per day at our usage | foundation |
 | HTTP API ($1 per million requests; about 3,600 per hour per polling user), VPC link (free) | under $0.01/h per active user | foundation / cluster |
 
+### 13.6 Recovering the bootstrap state
+
+The `bootstrap` stack keeps its state locally (`terraform/bootstrap/terraform.tfstate`, gitignored), because it creates the bucket every other stack stores its state in. If that file is lost (new laptop, fresh clone), the bucket is still there, so **don't** run `make bootstrap` again: it would try to create a bucket that already exists. Import it instead:
+
+```bash
+cd terraform/bootstrap
+terraform init
+BUCKET="oncall-training-tfstate-$(aws sts get-caller-identity --query Account --output text)"
+terraform import awscc_s3_bucket.state "$BUCKET"
+terraform plan   # should say "No changes"
+cd ../.. && make backend-config   # rewrite foundation/ and cluster/ backend.hcl
+```
+
+### 13.7 Switching to a new lab account
+
+Everything is per account: the state bucket, the foundation resources and the images. After `make creds` with a different account:
+
+```bash
+make bootstrap           # archives the old local state to terraform/bootstrap/archive/<old account>/,
+                         # creates this account's state bucket and rewrites both backend.hcl
+make foundation-apply    # files bucket, Sessions, queues, Cognito, API Gateway, ECR (empty)
+make images              # the injector and mock-system images don't carry over
+```
+
+Then run the backend's Release workflow so its image and scenarios exist in the new account, and redeploy the frontend with the new foundation outputs. If `backend.hcl` still points at another account's bucket, every foundation/cluster target stops with a message saying so.
+
+### 13.8 Demo: inject a fault by hand
+
+```bash
+make cluster-up && make deploy BACKEND_TAG=<sha>
+make check-rbac                # every line "ok"
+kubectl -n mock port-forward svc/gateway 8080:8080 &
+curl -s localhost:8080/health  # {"status":"up",...}
+
+# Send a FAULT by hand (ARCHITECTURE §7). The injector only applies faults for a session in
+# STARTING, so create a throwaway session item first.
+aws dynamodb put-item --table-name Sessions --item \
+  '{"user_id":{"S":"demo"},"session_id":{"S":"demo"},"state":{"S":"STARTING"}}'
+QUEUE=$(terraform -chdir=terraform/foundation output -raw faults_queue_url)
+aws sqs send-message --queue-url "$QUEUE" --message-body \
+  '{"faultId":"demo-1","sessionId":"demo","userId":"demo","type":"SCALE_TO_ZERO","target":{"namespace":"mock","deployment":"orders"}}'
+
+kubectl -n mock get deploy orders          # 0/0
+curl -s localhost:8080/health              # 503 {"status":"down","reason":"ECONNREFUSED ..."}
+kubectl -n injector logs deploy/injector   # "scaled to zero"
+
+kubectl -n mock scale deploy/orders --replicas=2   # the fix
+curl -s localhost:8080/health              # up again
+aws dynamodb delete-item --table-name Sessions --key '{"user_id":{"S":"demo"},"session_id":{"S":"demo"}}'
+
+make cluster-down              # always
+```
+
 ## 14. Local (kind)
 
 Runs the mock system and the injector in kind; the backend runs on the host (DECISIONS D-30). Without kind, the backend still runs the whole loop with `pnpm dev:memory` (in-memory store and a fake injector).
